@@ -25,11 +25,15 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
 
             terrainData.SetHeights(0, 0, BuildHeightMap(terrainData.heightmapResolution, settings, context.Seed));
 
+            var terrainRoot = new GameObject("GeneratedTerrain").transform;
+            terrainRoot.SetParent(context.GeneratedRoot, false);
+
             var terrainObject = Terrain.CreateTerrainGameObject(terrainData);
-            terrainObject.name = "GeneratedTerrain";
-            terrainObject.transform.SetParent(context.GeneratedRoot, false);
+            terrainObject.name = "TerrainSurface";
+            terrainObject.transform.SetParent(terrainRoot, false);
             terrainObject.transform.position = new Vector3(-settings.WorldWidth * 0.5f, 0f, -settings.WorldLength * 0.5f);
             context.GeneratedTerrain = terrainObject.GetComponent<Terrain>();
+            context.RecordSpawn("Terrain", 1);
         }
 
         private static int SanitizeHeightmapResolution(int requestedResolution)

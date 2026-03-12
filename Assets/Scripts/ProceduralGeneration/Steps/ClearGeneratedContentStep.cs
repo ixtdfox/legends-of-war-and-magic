@@ -11,10 +11,27 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
     {
         public void Execute(GenerationContext context)
         {
-            var root = context.GeneratedRoot;
+            Clear(context.GeneratedRoot);
+        }
+
+        public static void Clear(Transform root)
+        {
+            if (root == null)
+            {
+                return;
+            }
+
             for (var i = root.childCount - 1; i >= 0; i--)
             {
-                Object.Destroy(root.GetChild(i).gameObject);
+                var child = root.GetChild(i).gameObject;
+#if UNITY_EDITOR
+                if (!Application.isPlaying)
+                {
+                    Object.DestroyImmediate(child);
+                    continue;
+                }
+#endif
+                Object.Destroy(child);
             }
         }
     }

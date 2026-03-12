@@ -11,11 +11,16 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
     {
         public void Execute(GenerationContext context)
         {
+            var markersRoot = new GameObject("GeneratedBoundaries").transform;
+            markersRoot.SetParent(context.GeneratedRoot, false);
+
             var extents = context.WorldBounds.extents;
-            CreateMarker(new Vector3(-extents.x, 0.5f, -extents.z), context.GeneratedRoot, "SW");
-            CreateMarker(new Vector3(extents.x, 0.5f, -extents.z), context.GeneratedRoot, "SE");
-            CreateMarker(new Vector3(-extents.x, 0.5f, extents.z), context.GeneratedRoot, "NW");
-            CreateMarker(new Vector3(extents.x, 0.5f, extents.z), context.GeneratedRoot, "NE");
+            CreateMarker(new Vector3(-extents.x, 0.5f, -extents.z), markersRoot, "SW");
+            CreateMarker(new Vector3(extents.x, 0.5f, -extents.z), markersRoot, "SE");
+            CreateMarker(new Vector3(-extents.x, 0.5f, extents.z), markersRoot, "NW");
+            CreateMarker(new Vector3(extents.x, 0.5f, extents.z), markersRoot, "NE");
+
+            context.RecordSpawn("BoundaryMarkers", 4);
         }
 
         private static void CreateMarker(Vector3 position, Transform parent, string suffix)

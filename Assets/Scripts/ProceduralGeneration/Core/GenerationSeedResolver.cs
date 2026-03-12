@@ -17,7 +17,12 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Core
 
             return settings.SeedMode == SeedMode.Fixed
                 ? settings.FixedSeed
-                : Guid.NewGuid().GetHashCode();
+                : GenerateRandomSeed();
+        }
+
+        public static int GenerateRandomSeed()
+        {
+            return Guid.NewGuid().GetHashCode();
         }
     }
 }
