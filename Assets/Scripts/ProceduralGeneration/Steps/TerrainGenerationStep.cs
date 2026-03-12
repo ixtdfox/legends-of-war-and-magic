@@ -29,6 +29,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
             terrainObject.name = "GeneratedTerrain";
             terrainObject.transform.SetParent(context.GeneratedRoot, false);
             terrainObject.transform.position = new Vector3(-settings.WorldWidth * 0.5f, 0f, -settings.WorldLength * 0.5f);
+            context.GeneratedTerrain = terrainObject.GetComponent<Terrain>();
         }
 
         private static int SanitizeHeightmapResolution(int requestedResolution)

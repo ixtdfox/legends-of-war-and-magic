@@ -57,6 +57,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration
             {
                 new ClearGeneratedContentStep(),
                 new TerrainGenerationStep(),
+                new PropPlacementStep(),
                 new CreateBoundaryMarkersStep()
             };
 

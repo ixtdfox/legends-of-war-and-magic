@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace LegendsOfWarAndMagic.ProceduralGeneration.Config
@@ -61,6 +62,11 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Config
         [Range(0.1f, 10f)]
         [SerializeField] private float edgeFalloffStrength = 2.2f;
 
+        [Header("Prop Placement")]
+        [SerializeField] private bool enablePropPlacement = true;
+
+        [SerializeField] private List<PropCategoryPlacementSettings> propCategories = new();
+
         public float WorldWidth => worldWidth;
         public float WorldLength => worldLength;
         public SeedMode SeedMode => seedMode;
@@ -75,6 +81,8 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Config
         public bool UseEdgeFalloff => useEdgeFalloff;
         public float EdgeFalloffStart => edgeFalloffStart;
         public float EdgeFalloffStrength => edgeFalloffStrength;
+        public bool EnablePropPlacement => enablePropPlacement;
+        public IReadOnlyList<PropCategoryPlacementSettings> PropCategories => propCategories;
 
         public Bounds GetWorldBounds()
         {

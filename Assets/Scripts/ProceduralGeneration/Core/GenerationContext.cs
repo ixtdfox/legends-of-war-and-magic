@@ -20,5 +20,6 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Core
         public int Seed { get; }
         public Bounds WorldBounds { get; }
         public Transform GeneratedRoot { get; }
+        public Terrain GeneratedTerrain { get; set; }
     }
 }
