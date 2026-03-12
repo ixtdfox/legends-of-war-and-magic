@@ -30,19 +30,51 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Config
 
         [SerializeField] private int fixedSeed = 12345;
 
-        [Header("Terrain Placeholder Settings")]
-        [Min(2)]
-        [SerializeField] private int terrainResolution = 256;
+        [Header("Terrain")]
+        [Min(33)]
+        [SerializeField] private int heightmapResolution = 513;
+
+        [Min(1f)]
+        [SerializeField] private float terrainHeight = 220f;
+
+        [Min(0.001f)]
+        [SerializeField] private float noiseScale = 320f;
 
         [Min(1)]
-        [SerializeField] private int terrainDensity = 1;
+        [SerializeField] private int octaves = 5;
+
+        [Range(0f, 1f)]
+        [SerializeField] private float persistence = 0.45f;
+
+        [Min(1f)]
+        [SerializeField] private float lacunarity = 2f;
+
+        [Min(0f)]
+        [SerializeField] private float heightMultiplier = 1f;
+
+        [Header("Edge Smoothing")]
+        [SerializeField] private bool useEdgeFalloff = true;
+
+        [Range(0f, 1f)]
+        [SerializeField] private float edgeFalloffStart = 0.82f;
+
+        [Range(0.1f, 10f)]
+        [SerializeField] private float edgeFalloffStrength = 2.2f;
 
         public float WorldWidth => worldWidth;
         public float WorldLength => worldLength;
         public SeedMode SeedMode => seedMode;
         public int FixedSeed => fixedSeed;
-        public int TerrainResolution => terrainResolution;
-        public int TerrainDensity => terrainDensity;
+        public int HeightmapResolution => heightmapResolution;
+        public float TerrainHeight => terrainHeight;
+        public float NoiseScale => noiseScale;
+        public int Octaves => octaves;
+        public float Persistence => persistence;
+        public float Lacunarity => lacunarity;
+        public float HeightMultiplier => heightMultiplier;
+        public bool UseEdgeFalloff => useEdgeFalloff;
+        public float EdgeFalloffStart => edgeFalloffStart;
+        public float EdgeFalloffStrength => edgeFalloffStrength;
 
         public Bounds GetWorldBounds()
         {

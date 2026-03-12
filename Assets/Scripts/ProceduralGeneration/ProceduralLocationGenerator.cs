@@ -48,7 +48,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration
             var context = new GenerationContext(settings, seed, generatedContentRoot);
             BuildPipeline().Run(context);
 
-            Debug.Log($"Procedural location generated. Seed={seed}, Size={settings.WorldWidth}x{settings.WorldLength}m", this);
+            Debug.Log($"Procedural location generated. Seed={seed}, TerrainSize={settings.WorldWidth}x{settings.WorldLength}m Height={settings.TerrainHeight}m", this);
         }
 
         private static GenerationPipeline BuildPipeline()
@@ -56,7 +56,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration
             var steps = new List<IGenerationStep>
             {
                 new ClearGeneratedContentStep(),
-                new CreateBaseGroundStep(),
+                new TerrainGenerationStep(),
                 new CreateBoundaryMarkersStep()
             };
 
