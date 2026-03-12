@@ -14,10 +14,13 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration
     [DisallowMultipleComponent]
     public class ProceduralLocationGenerator : MonoBehaviour
     {
+        private const string DefaultSettingsResourcePath = "ProceduralGeneration/DefaultProceduralLocationSettings";
+
         [Header("General")]
         [SerializeField] private bool generateOnStart = true;
 
-        [SerializeField] private ProceduralLocationSettings settings = new();
+        [Tooltip("Reusable ScriptableObject preset that controls all generation parameters.")]
+        [SerializeField] private ProceduralLocationSettings settings;
 
         [Header("Output")]
         [SerializeField] private Transform generatedContentRoot;
@@ -35,6 +38,13 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration
         [ContextMenu("Generate Location")]
         public void Generate()
         {
+            var activeSettings = ResolveSettings();
+            if (activeSettings == null)
+            {
+                Debug.LogError("Procedural generation aborted: no settings asset is assigned and no default resource was found.", this);
+                return;
+            }
+
             if (generatedContentRoot == null)
             {
                 var root = new GameObject("GeneratedLocationRoot");
@@ -42,13 +52,25 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration
                 generatedContentRoot = root.transform;
             }
 
-            var seed = GenerationSeedResolver.ResolveSeed(settings);
+            var seed = GenerationSeedResolver.ResolveSeed(activeSettings);
             Random.InitState(seed);
 
-            var context = new GenerationContext(settings, seed, generatedContentRoot);
+            var context = new GenerationContext(activeSettings, seed, generatedContentRoot);
             BuildPipeline().Run(context);
 
-            Debug.Log($"Procedural location generated. Seed={seed}, TerrainSize={settings.WorldWidth}x{settings.WorldLength}m Height={settings.TerrainHeight}m", this);
+            Debug.Log($"Procedural location generated. Preset={activeSettings.name}, Seed={seed}, TerrainSize={activeSettings.WorldWidth}x{activeSettings.WorldLength}m Height={activeSettings.TerrainHeight}m", this);
+        }
+
+        private ProceduralLocationSettings ResolveSettings()
+        {
+            if (settings != null)
+            {
+                return settings;
+            }
+
+            // Keeps auto-generation working in scenes where the component wasn't configured yet.
+            settings = Resources.Load<ProceduralLocationSettings>(DefaultSettingsResourcePath);
+            return settings;
         }
 
         private static GenerationPipeline BuildPipeline()
@@ -66,12 +88,13 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration
 
         private void OnDrawGizmosSelected()
         {
-            if (settings == null)
+            var activeSettings = ResolveSettings();
+            if (activeSettings == null)
             {
                 return;
             }
 
-            var bounds = settings.GetWorldBounds();
+            var bounds = activeSettings.GetWorldBounds();
             Gizmos.color = Color.yellow;
             Gizmos.DrawWireCube(bounds.center, new Vector3(bounds.size.x, 1f, bounds.size.z));
         }
