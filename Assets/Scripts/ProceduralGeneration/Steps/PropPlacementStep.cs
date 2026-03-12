@@ -63,7 +63,8 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                 return;
             }
 
-            var categoryRoot = new GameObject(category.CategoryName).transform;
+            var categoryName = string.IsNullOrWhiteSpace(category.CategoryName) ? "Props" : category.CategoryName;
+            var categoryRoot = new GameObject(categoryName).transform;
             categoryRoot.SetParent(propsRoot, false);
 
             var lodWarnedPrefabs = new HashSet<int>();
@@ -133,11 +134,13 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
 
             if (accepted == 0)
             {
-                Object.DestroyImmediate(categoryRoot.gameObject);
+                SafeDestroy(categoryRoot.gameObject);
             }
             else
             {
-                var summary = $"Prop category '{category.CategoryName}' placed {accepted}/{targetCount} instances after {maxAttempts} attempts.";
+                context.RecordSpawn(categoryName, accepted);
+
+                var summary = $"Prop category '{categoryName}' placed {accepted}/{targetCount} instances after {maxAttempts} attempts.";
                 if (accepted < targetCount)
                 {
                     Debug.Log(summary);
@@ -148,6 +151,19 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                     Debug.Log($"{summary} Generator-side draw distance culling enabled at {category.MaxDrawDistance:0.##} units.");
                 }
             }
+        }
+
+
+        private static void SafeDestroy(GameObject target)
+        {
+#if UNITY_EDITOR
+            if (!Application.isPlaying)
+            {
+                Object.DestroyImmediate(target);
+                return;
+            }
+#endif
+            Object.Destroy(target);
         }
 
         private static void ValidateLodSetup(

@@ -1,4 +1,5 @@
 using LegendsOfWarAndMagic.ProceduralGeneration.Config;
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace LegendsOfWarAndMagic.ProceduralGeneration.Core
@@ -21,5 +22,23 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Core
         public Bounds WorldBounds { get; }
         public Transform GeneratedRoot { get; }
         public Terrain GeneratedTerrain { get; set; }
+
+        public IReadOnlyDictionary<string, int> SpawnedByCategory => spawnedByCategory;
+
+        public void RecordSpawn(string category, int count = 1)
+        {
+            if (count <= 0)
+            {
+                return;
+            }
+
+            var safeCategory = string.IsNullOrWhiteSpace(category) ? "Uncategorized" : category;
+            if (!spawnedByCategory.TryAdd(safeCategory, count))
+            {
+                spawnedByCategory[safeCategory] += count;
+            }
+        }
+
+        private readonly Dictionary<string, int> spawnedByCategory = new();
     }
 }
