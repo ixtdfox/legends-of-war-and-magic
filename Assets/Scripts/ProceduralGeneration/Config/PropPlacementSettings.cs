@@ -25,6 +25,16 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Config
         [SerializeField] private Vector2 randomScaleRange = new(0.9f, 1.2f);
         [SerializeField] private bool randomYRotation = true;
 
+        [Tooltip("Logs a warning if a prefab in this category does not include an LODGroup component.")]
+        [SerializeField] private bool warnIfMissingLodGroup = true;
+
+        [Tooltip("If enabled, generation logs explicit warnings for prefabs without LODGroup in this category.")]
+        [SerializeField] private bool expectLodGroup = false;
+
+        [Tooltip("Optional max visible distance in world units. 0 disables generator-side distance culling.")]
+        [Min(0f)]
+        [SerializeField] private float maxDrawDistance = 0f;
+
         [Tooltip("Higher values try more candidates before giving up.")]
         [Range(1f, 20f)]
         [SerializeField] private float attemptsMultiplier = 6f;
@@ -38,6 +48,9 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Config
         public Vector2 AllowedHeightRange => NormalizeRange(allowedHeightRange, float.MinValue, float.MaxValue);
         public Vector2 RandomScaleRange => NormalizeRange(randomScaleRange, 0.01f, 100f);
         public bool RandomYRotation => randomYRotation;
+        public bool WarnIfMissingLodGroup => warnIfMissingLodGroup;
+        public bool ExpectLodGroup => expectLodGroup;
+        public float MaxDrawDistance => maxDrawDistance;
         public float AttemptsMultiplier => attemptsMultiplier;
 
         private static Vector2 NormalizeRange(Vector2 range, float minClamp, float maxClamp)

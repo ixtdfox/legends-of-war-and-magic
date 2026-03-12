@@ -66,6 +66,8 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
             var categoryRoot = new GameObject(category.CategoryName).transform;
             categoryRoot.SetParent(propsRoot, false);
 
+            var lodWarnedPrefabs = new HashSet<int>();
+
             var worldBounds = context.WorldBounds;
             var minX = worldBounds.min.x;
             var maxX = worldBounds.max.x;
@@ -112,7 +114,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                     continue;
                 }
 
-                var instance = UnityEngine.Object.Instantiate(prefab, point, Quaternion.identity, categoryRoot);
+                var instance = Object.Instantiate(prefab, point, Quaternion.identity, categoryRoot);
                 instance.name = $"{prefab.name}_{accepted + 1:D4}";
 
                 var rotationY = category.RandomYRotation ? Random.Range(0f, 360f) : 0f;
@@ -122,18 +124,74 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                 var uniformScale = Random.Range(scaleRange.x, scaleRange.y);
                 instance.transform.localScale *= uniformScale;
 
+                ValidateLodSetup(category, prefab, instance, lodWarnedPrefabs);
+                ApplyDrawDistance(instance, category.MaxDrawDistance);
+
                 acceptedPositions.Add(point2D);
                 accepted++;
             }
 
             if (accepted == 0)
             {
-                UnityEngine.Object.DestroyImmediate(categoryRoot.gameObject);
+                Object.DestroyImmediate(categoryRoot.gameObject);
             }
-            else if (accepted < targetCount)
+            else
             {
-                Debug.Log($"Prop category '{category.CategoryName}' placed {accepted}/{targetCount} instances after {maxAttempts} attempts.");
+                var summary = $"Prop category '{category.CategoryName}' placed {accepted}/{targetCount} instances after {maxAttempts} attempts.";
+                if (accepted < targetCount)
+                {
+                    Debug.Log(summary);
+                }
+
+                if (category.MaxDrawDistance > 0f)
+                {
+                    Debug.Log($"{summary} Generator-side draw distance culling enabled at {category.MaxDrawDistance:0.##} units.");
+                }
             }
+        }
+
+        private static void ValidateLodSetup(
+            PropCategoryPlacementSettings category,
+            GameObject prefab,
+            GameObject instance,
+            HashSet<int> warnedPrefabs)
+        {
+            if (!category.WarnIfMissingLodGroup && !category.ExpectLodGroup)
+            {
+                return;
+            }
+
+            if (instance.GetComponentInChildren<LODGroup>() != null)
+            {
+                return;
+            }
+
+            var prefabId = prefab.GetInstanceID();
+            if (!warnedPrefabs.Add(prefabId))
+            {
+                return;
+            }
+
+            var expectation = category.ExpectLodGroup ? "Expected an LODGroup but none was found." : "No LODGroup found.";
+            Debug.LogWarning(
+                $"Prop category '{category.CategoryName}' prefab '{prefab.name}' is not LOD-configured. {expectation} " +
+                "To enable efficient camera-distance rendering, add an LODGroup to the prefab root or one of its children.");
+        }
+
+        private static void ApplyDrawDistance(GameObject instance, float maxDrawDistance)
+        {
+            if (maxDrawDistance <= 0f)
+            {
+                return;
+            }
+
+            var cullingGroup = instance.GetComponent<GeneratedPropDistanceCulling>();
+            if (cullingGroup == null)
+            {
+                cullingGroup = instance.AddComponent<GeneratedPropDistanceCulling>();
+            }
+
+            cullingGroup.Initialize(maxDrawDistance);
         }
 
         private static bool TrySamplePoint(Terrain terrain, float worldX, float worldZ, out Vector3 point, out Vector3 normal)
