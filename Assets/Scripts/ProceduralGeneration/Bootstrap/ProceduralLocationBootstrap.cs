@@ -1,4 +1,6 @@
+using LegendsOfWarAndMagic.SceneManagement;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 
 namespace LegendsOfWarAndMagic.ProceduralGeneration.Bootstrap
 {
@@ -11,6 +13,12 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Bootstrap
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         private static void EnsureGeneratorExists()
         {
+            var activeScene = SceneManager.GetActiveScene();
+            if (activeScene.name != SceneNames.OutdoorsScene)
+            {
+                return;
+            }
+
             if (Object.FindFirstObjectByType<ProceduralLocationGenerator>() != null)
             {
                 return;

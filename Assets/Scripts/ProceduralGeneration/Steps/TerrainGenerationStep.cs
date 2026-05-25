@@ -33,6 +33,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
             terrainObject.transform.SetParent(terrainRoot, false);
             terrainObject.transform.position = new Vector3(-settings.WorldWidth * 0.5f, 0f, -settings.WorldLength * 0.5f);
             context.GeneratedTerrain = terrainObject.GetComponent<Terrain>();
+            GeneratedTerrainVisuals.Apply(context.GeneratedTerrain, settings);
             context.RecordSpawn("Terrain", 1);
         }
 
@@ -69,8 +70,8 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                 {
                     var normalized = Mathf.InverseLerp(minNoiseHeight, maxNoiseHeight, noiseMap[y, x]);
                     var shapedHeight = ShapeNaturalTerrain(normalized);
-                    var withEdgeFalloff = ApplyEdgeFalloffIfEnabled(shapedHeight, x, y, resolution, settings);
-                    heights[y, x] = Mathf.Clamp01(withEdgeFalloff * settings.HeightMultiplier);
+                    var withLandShape = ApplyLandShape(shapedHeight, x, y, resolution, settings, seed);
+                    heights[y, x] = Mathf.Clamp01(withLandShape * settings.HeightMultiplier);
                 }
             }
 
@@ -142,6 +143,51 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
             var edgeReduction = Mathf.Pow(falloffT, settings.EdgeFalloffStrength);
 
             return height * (1f - edgeReduction * 0.7f);
+        }
+
+        private static float ApplyLandShape(float height, int x, int y, int resolution, ProceduralLocationSettings settings, int seed)
+        {
+            return settings.LandShape switch
+            {
+                TerrainLandShape.Islands => ApplyIslandFalloff(height, x, y, resolution, settings, 0.94f),
+                TerrainLandShape.Archipelago => ApplyArchipelagoFalloff(height, x, y, resolution, settings, seed),
+                _ => ApplyEdgeFalloffIfEnabled(height, x, y, resolution, settings)
+            };
+        }
+
+        private static float ApplyIslandFalloff(
+            float height,
+            int x,
+            int y,
+            int resolution,
+            ProceduralLocationSettings settings,
+            float edgeReductionMultiplier)
+        {
+            var nx = x / (float)(resolution - 1) * 2f - 1f;
+            var ny = y / (float)(resolution - 1) * 2f - 1f;
+            var distanceFromCenter = Mathf.Sqrt(nx * nx + ny * ny) / 1.4142135f;
+
+            if (distanceFromCenter <= settings.EdgeFalloffStart)
+            {
+                return height;
+            }
+
+            var falloffRange = Mathf.Max(1e-5f, 1f - settings.EdgeFalloffStart);
+            var falloffT = Mathf.Clamp01((distanceFromCenter - settings.EdgeFalloffStart) / falloffRange);
+            var edgeReduction = Mathf.Pow(falloffT, settings.EdgeFalloffStrength);
+            return height * (1f - edgeReduction * edgeReductionMultiplier);
+        }
+
+        private static float ApplyArchipelagoFalloff(float height, int x, int y, int resolution, ProceduralLocationSettings settings, int seed)
+        {
+            var nx = x / (float)(resolution - 1) * 2f - 1f;
+            var ny = y / (float)(resolution - 1) * 2f - 1f;
+            var offsetA = ((seed & 0xFFFF) / 65535f) * 19.73f;
+            var offsetB = (((seed >> 8) & 0xFFFF) / 65535f) * 23.19f;
+            var clusterNoise = Mathf.PerlinNoise((nx + offsetA) * 3.15f, (ny + offsetB) * 3.15f);
+            var islandMask = Mathf.SmoothStep(0.34f, 0.78f, clusterNoise);
+            var clusteredHeight = height * Mathf.Lerp(0.16f, 1f, islandMask);
+            return ApplyIslandFalloff(clusteredHeight, x, y, resolution, settings, 0.98f);
         }
     }
 }

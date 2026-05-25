@@ -33,6 +33,14 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration
         [SerializeField] private int lastUsedSeed;
 
         public int LastUsedSeed => lastUsedSeed;
+        public Terrain GeneratedTerrain { get; private set; }
+        public Transform GeneratedContentRoot => generatedContentRoot;
+        public string LastGenerationSummary { get; private set; }
+        public bool GenerateOnStart
+        {
+            get => generateOnStart;
+            set => generateOnStart = value;
+        }
 
         private void Start()
         {
@@ -61,6 +69,18 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration
             }
 
             GenerateInternal(activeSettings, GenerationSeedResolver.ResolveSeed(activeSettings));
+        }
+
+        public void GenerateFromSettings(ProceduralLocationSettings runtimeSettings, int seed)
+        {
+            if (runtimeSettings == null)
+            {
+                Debug.LogError("Procedural generation aborted: runtime settings are null.", this);
+                return;
+            }
+
+            settings = runtimeSettings;
+            GenerateInternal(runtimeSettings, seed);
         }
 
         [ContextMenu("Generate/Regenerate (Same Seed)")]
@@ -110,16 +130,18 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration
             var context = new GenerationContext(activeSettings, seed, generatedContentRoot);
             BuildPipeline().Run(context);
             lastUsedSeed = seed;
+            GeneratedTerrain = context.GeneratedTerrain;
+            LastGenerationSummary = BuildGenerationSummary(context);
 
             if (verboseDebugLogging)
             {
-                Debug.Log(BuildGenerationSummary(context), this);
+                Debug.Log(LastGenerationSummary, this);
             }
         }
 
         private string BuildGenerationSummary(GenerationContext context)
         {
-            var settingsSummary = $"Procedural location generated. Preset={context.Settings.name}, Seed={context.Seed}, TerrainSize={context.Settings.WorldWidth}x{context.Settings.WorldLength}m Height={context.Settings.TerrainHeight}m";
+            var settingsSummary = $"Procedural location generated. Preset={context.Settings.name}, Seed={context.Seed}, TerrainSize={context.Settings.WorldWidth}x{context.Settings.WorldLength}m Height={context.Settings.TerrainHeight}m, LandShape={context.Settings.LandShape}, WaterLevel={context.Settings.WaterLevel:0.##}m";
             if (context.SpawnedByCategory.Count == 0)
             {
                 return $"{settingsSummary}, SpawnedCategories=None";
@@ -176,6 +198,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration
             {
                 new ClearGeneratedContentStep(),
                 new TerrainGenerationStep(),
+                new WaterGenerationStep(),
                 new PropPlacementStep(),
                 new CreateBoundaryMarkersStep()
             };

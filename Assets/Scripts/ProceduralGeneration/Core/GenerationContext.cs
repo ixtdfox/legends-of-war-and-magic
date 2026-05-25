@@ -22,6 +22,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Core
         public Bounds WorldBounds { get; }
         public Transform GeneratedRoot { get; }
         public Terrain GeneratedTerrain { get; set; }
+        public GameObject GeneratedWater { get; set; }
 
         public IReadOnlyDictionary<string, int> SpawnedByCategory => spawnedByCategory;
 

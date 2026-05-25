@@ -53,6 +53,11 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
         {
             if (category == null || !category.Enabled || category.Prefabs == null || category.Prefabs.Length == 0 || category.DensityPer10kSqm <= 0f)
             {
+                if (category != null && category.Enabled && category.DensityPer10kSqm > 0f && (category.Prefabs == null || category.Prefabs.Length == 0))
+                {
+                    Debug.LogWarning($"Prop category '{category.CategoryName}' was requested, but it has no prefabs. Terrain generation will continue without this category.");
+                }
+
                 return;
             }
 
@@ -117,6 +122,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
 
                 var instance = Object.Instantiate(prefab, point, Quaternion.identity, categoryRoot);
                 instance.name = $"{prefab.name}_{accepted + 1:D4}";
+                PrepareSpawnedInstance(instance);
 
                 var rotationY = category.RandomYRotation ? Random.Range(0f, 360f) : 0f;
                 instance.transform.rotation = Quaternion.Euler(0f, rotationY, 0f);
@@ -150,6 +156,18 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                 {
                     Debug.Log($"{summary} Generator-side draw distance culling enabled at {category.MaxDrawDistance:0.##} units.");
                 }
+            }
+        }
+
+        private static void PrepareSpawnedInstance(GameObject instance)
+        {
+            instance.hideFlags = HideFlags.None;
+            instance.SetActive(true);
+
+            var transforms = instance.GetComponentsInChildren<Transform>(true);
+            for (var i = 0; i < transforms.Length; i++)
+            {
+                transforms[i].gameObject.hideFlags = HideFlags.None;
             }
         }
 

@@ -53,6 +53,36 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Config
         public float MaxDrawDistance => maxDrawDistance;
         public float AttemptsMultiplier => attemptsMultiplier;
 
+        public void Configure(
+            string name,
+            bool isEnabled,
+            GameObject[] categoryPrefabs,
+            float density,
+            float minDistance,
+            Vector2 slopeRange,
+            Vector2 heightRange,
+            Vector2 scaleRange,
+            bool randomRotation,
+            bool warnForMissingLod,
+            bool requireLod,
+            float drawDistance,
+            float placementAttemptsMultiplier)
+        {
+            categoryName = string.IsNullOrWhiteSpace(name) ? "Props" : name;
+            enabled = isEnabled;
+            prefabs = categoryPrefabs ?? Array.Empty<GameObject>();
+            densityPer10kSqm = Mathf.Max(0f, density);
+            minDistanceBetweenInstances = Mathf.Max(0f, minDistance);
+            allowedSlopeRange = slopeRange;
+            allowedHeightRange = heightRange;
+            randomScaleRange = scaleRange;
+            randomYRotation = randomRotation;
+            warnIfMissingLodGroup = warnForMissingLod;
+            expectLodGroup = requireLod;
+            maxDrawDistance = Mathf.Max(0f, drawDistance);
+            attemptsMultiplier = Mathf.Clamp(placementAttemptsMultiplier, 1f, 20f);
+        }
+
         private static Vector2 NormalizeRange(Vector2 range, float minClamp, float maxClamp)
         {
             var min = Mathf.Clamp(Mathf.Min(range.x, range.y), minClamp, maxClamp);
