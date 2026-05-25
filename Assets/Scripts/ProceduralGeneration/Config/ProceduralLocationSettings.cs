@@ -95,6 +95,22 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Config
 
             [SerializeField] private TerrainLandShape landShape = TerrainLandShape.Mainland;
 
+            [Header("Natural Features")]
+            [Range(0f, 1.5f)]
+            [SerializeField] private float ridgeIntensity = 0.35f;
+
+            [Range(0f, 1.5f)]
+            [SerializeField] private float valleyIntensity = 0.25f;
+
+            [Range(0f, 1.5f)]
+            [SerializeField] private float cliffIntensity = 0.25f;
+
+            [Range(0f, 1f)]
+            [SerializeField] private float terraceStrength = 0.08f;
+
+            [Range(0f, 1f)]
+            [SerializeField] private float microReliefStrength = 0.12f;
+
             [Header("Edge Smoothing")]
             [SerializeField] private bool useEdgeFalloff = true;
 
@@ -112,6 +128,11 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Config
             public float Lacunarity => lacunarity;
             public float HeightMultiplier => heightMultiplier;
             public TerrainLandShape LandShape => landShape;
+            public float RidgeIntensity => ridgeIntensity;
+            public float ValleyIntensity => valleyIntensity;
+            public float CliffIntensity => cliffIntensity;
+            public float TerraceStrength => terraceStrength;
+            public float MicroReliefStrength => microReliefStrength;
             public bool UseEdgeFalloff => useEdgeFalloff;
             public float EdgeFalloffStart => edgeFalloffStart;
             public float EdgeFalloffStrength => edgeFalloffStrength;
@@ -125,6 +146,11 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Config
                 float lacunarityValue,
                 float multiplier,
                 TerrainLandShape shape,
+                float ridges,
+                float valleys,
+                float cliffs,
+                float terraces,
+                float microRelief,
                 bool edgeFalloff,
                 float falloffStart,
                 float falloffStrength)
@@ -137,6 +163,11 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Config
                 lacunarity = Mathf.Max(1f, lacunarityValue);
                 heightMultiplier = Mathf.Max(0f, multiplier);
                 landShape = shape;
+                ridgeIntensity = Mathf.Clamp(ridges, 0f, 1.5f);
+                valleyIntensity = Mathf.Clamp(valleys, 0f, 1.5f);
+                cliffIntensity = Mathf.Clamp(cliffs, 0f, 1.5f);
+                terraceStrength = Mathf.Clamp01(terraces);
+                microReliefStrength = Mathf.Clamp01(microRelief);
                 useEdgeFalloff = edgeFalloff;
                 edgeFalloffStart = Mathf.Clamp01(falloffStart);
                 edgeFalloffStrength = Mathf.Clamp(falloffStrength, 0.1f, 10f);
@@ -202,14 +233,50 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Config
         [Header("Props")]
         [SerializeField] private PropPlacementGenerationSettings props = new();
 
+        [Serializable]
+        public sealed class TerrainDetailGenerationSettings
+        {
+            [SerializeField] private bool enabled = true;
+
+            [Range(0f, 8f)]
+            [SerializeField] private float densityMultiplier = 1f;
+
+            [Min(0)]
+            [SerializeField] private int detailResolution = 512;
+
+            [Min(8)]
+            [SerializeField] private int detailResolutionPerPatch = 16;
+
+            public bool Enabled => enabled;
+            public float DensityMultiplier => densityMultiplier;
+            public int DetailResolution => detailResolution;
+            public int DetailResolutionPerPatch => detailResolutionPerPatch;
+
+            public void Configure(bool isEnabled, float multiplier, int resolution, int resolutionPerPatch)
+            {
+                enabled = isEnabled;
+                densityMultiplier = Mathf.Clamp(multiplier, 0f, 8f);
+                detailResolution = Mathf.Max(0, resolution);
+                detailResolutionPerPatch = Mathf.Max(8, resolutionPerPatch);
+            }
+        }
+
         [Header("Water")]
         [SerializeField] private WaterGenerationSettings water = new();
+
+        [Header("Terrain Details")]
+        [SerializeField] private TerrainDetailGenerationSettings terrainDetails = new();
+
+        [Header("Environment Assets")]
+        [SerializeField] private ProceduralEnvironmentAssetCatalog assetCatalog;
 
         public GlobalGenerationSettings Global => global;
         public SeedGenerationSettings Seed => seed;
         public TerrainGenerationSettings Terrain => terrain;
         public PropPlacementGenerationSettings Props => props;
         public WaterGenerationSettings Water => water;
+        public TerrainDetailGenerationSettings TerrainDetails => terrainDetails;
+        public ProceduralEnvironmentAssetCatalog AssetCatalog => assetCatalog;
 
         public float WorldWidth => global.WorldWidth;
         public float WorldLength => global.WorldLength;
@@ -223,6 +290,11 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Config
         public float Lacunarity => terrain.Lacunarity;
         public float HeightMultiplier => terrain.HeightMultiplier;
         public TerrainLandShape LandShape => terrain.LandShape;
+        public float RidgeIntensity => terrain.RidgeIntensity;
+        public float ValleyIntensity => terrain.ValleyIntensity;
+        public float CliffIntensity => terrain.CliffIntensity;
+        public float TerraceStrength => terrain.TerraceStrength;
+        public float MicroReliefStrength => terrain.MicroReliefStrength;
         public bool UseEdgeFalloff => terrain.UseEdgeFalloff;
         public float EdgeFalloffStart => terrain.EdgeFalloffStart;
         public float EdgeFalloffStrength => terrain.EdgeFalloffStrength;
@@ -232,6 +304,15 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Config
         public float WaterLevel => water.WaterLevel;
         public float WaterPlanePadding => water.PlanePadding;
         public Color WaterColor => water.WaterColor;
+        public bool TerrainDetailsEnabled => terrainDetails.Enabled;
+        public float TerrainDetailDensityMultiplier => terrainDetails.DensityMultiplier;
+        public int TerrainDetailResolution => terrainDetails.DetailResolution;
+        public int TerrainDetailResolutionPerPatch => terrainDetails.DetailResolutionPerPatch;
+
+        public void ConfigureAssetCatalog(ProceduralEnvironmentAssetCatalog catalog)
+        {
+            assetCatalog = catalog;
+        }
 
         public void ConfigureGlobal(float width, float length)
         {
@@ -252,6 +333,11 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Config
             float lacunarityValue,
             float multiplier,
             TerrainLandShape shape,
+            float ridges,
+            float valleys,
+            float cliffs,
+            float terraces,
+            float microRelief,
             bool edgeFalloff,
             float falloffStart,
             float falloffStrength)
@@ -265,6 +351,11 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Config
                 lacunarityValue,
                 multiplier,
                 shape,
+                ridges,
+                valleys,
+                cliffs,
+                terraces,
+                microRelief,
                 edgeFalloff,
                 falloffStart,
                 falloffStrength);
@@ -278,6 +369,11 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Config
         public void ConfigureWater(bool enabled, float level, float padding, Color color)
         {
             water.Configure(enabled, level, padding, color);
+        }
+
+        public void ConfigureTerrainDetails(bool enabled, float densityMultiplier, int resolution, int resolutionPerPatch)
+        {
+            terrainDetails.Configure(enabled, densityMultiplier, resolution, resolutionPerPatch);
         }
 
         public Bounds GetWorldBounds()

@@ -23,7 +23,7 @@ namespace LegendsOfWarAndMagic.Game.Bootstrap
 
             var spawnPoint = FindSafeSpawnPoint(generator.GeneratedTerrain, mappedSettings.Settings);
             var player = CreatePlayer(spawnPoint);
-            CreateFollowCamera(player.transform);
+            CreateFirstPersonCamera(player);
 
             Debug.Log($"GameScene ready. Request={mappedSettings.Summary}. Spawn={spawnPoint}. {generator.LastGenerationSummary}");
         }
@@ -143,20 +143,23 @@ namespace LegendsOfWarAndMagic.Game.Bootstrap
             return player;
         }
 
-        private static void CreateFollowCamera(Transform target)
+        private static void CreateFirstPersonCamera(GameObject player)
         {
             var existingCamera = UnityEngine.Camera.main != null
                 ? UnityEngine.Camera.main
                 : Object.FindFirstObjectByType<UnityEngine.Camera>();
             var cameraObject = existingCamera != null
                 ? existingCamera.gameObject
-                : new GameObject("Follow Camera");
+                : new GameObject("First Person Camera");
 
-            cameraObject.name = "Follow Camera";
+            cameraObject.name = "First Person Camera";
             cameraObject.tag = "MainCamera";
+            cameraObject.transform.SetParent(player.transform, false);
+            cameraObject.transform.localPosition = new Vector3(0f, 1.72f, 0.08f);
+            cameraObject.transform.localRotation = Quaternion.identity;
 
             var camera = existingCamera != null ? existingCamera : cameraObject.AddComponent<UnityEngine.Camera>();
-            camera.fieldOfView = 58f;
+            camera.fieldOfView = 68f;
             camera.nearClipPlane = 0.1f;
             camera.farClipPlane = 3000f;
 
@@ -166,12 +169,16 @@ namespace LegendsOfWarAndMagic.Game.Bootstrap
             }
 
             var followCamera = cameraObject.GetComponent<LegendsOfWarAndMagic.Game.Camera.SimpleFollowCamera>();
-            if (followCamera == null)
+            if (followCamera != null)
             {
-                followCamera = cameraObject.AddComponent<LegendsOfWarAndMagic.Game.Camera.SimpleFollowCamera>();
+                Object.Destroy(followCamera);
             }
 
-            followCamera.SetTarget(target);
+            var playerController = player.GetComponent<SimplePlayerController>();
+            if (playerController != null)
+            {
+                playerController.SetViewCamera(cameraObject.transform);
+            }
         }
 
         private static void EnsureLighting()

@@ -127,6 +127,58 @@ namespace LegendsOfWarAndMagic.UI.Shared
             return input;
         }
 
+        public static Slider CreateSlider(
+            Transform parent,
+            string name,
+            float value,
+            UnityAction<float> onValueChanged,
+            Vector2 preferredSize)
+        {
+            var sliderObject = CreateUiObject(parent, name);
+
+            var background = CreateImage(sliderObject.transform, "Background", new Color(0.08f, 0.10f, 0.09f, 0.95f));
+            var backgroundRect = Stretch(background.gameObject, Vector2.zero, Vector2.zero);
+            backgroundRect.anchorMin = new Vector2(0f, 0.35f);
+            backgroundRect.anchorMax = new Vector2(1f, 0.65f);
+
+            var fillArea = CreateUiObject(sliderObject.transform, "Fill Area");
+            var fillAreaRect = Stretch(fillArea, new Vector2(10f, 0f), new Vector2(-10f, 0f));
+            fillAreaRect.anchorMin = new Vector2(0f, 0.35f);
+            fillAreaRect.anchorMax = new Vector2(1f, 0.65f);
+
+            var fill = CreateImage(fillArea.transform, "Fill", new Color(0.55f, 0.42f, 0.18f, 1f));
+            Stretch(fill.gameObject, Vector2.zero, Vector2.zero);
+
+            var handleArea = CreateUiObject(sliderObject.transform, "Handle Slide Area");
+            var handleAreaRect = Stretch(handleArea, new Vector2(10f, 0f), new Vector2(-10f, 0f));
+            handleAreaRect.anchorMin = Vector2.zero;
+            handleAreaRect.anchorMax = Vector2.one;
+
+            var handle = CreateImage(handleArea.transform, "Handle", new Color(0.97f, 0.86f, 0.55f, 1f));
+            var handleRect = handle.GetComponent<RectTransform>();
+            handleRect.sizeDelta = new Vector2(28f, 46f);
+
+            var slider = sliderObject.AddComponent<Slider>();
+            slider.minValue = 0f;
+            slider.maxValue = 1f;
+            slider.wholeNumbers = false;
+            slider.targetGraphic = handle;
+            slider.fillRect = fill.GetComponent<RectTransform>();
+            slider.handleRect = handleRect;
+            slider.value = Mathf.Clamp01(value);
+            if (onValueChanged != null)
+            {
+                slider.onValueChanged.AddListener(onValueChanged);
+            }
+
+            var layout = sliderObject.AddComponent<LayoutElement>();
+            layout.preferredWidth = preferredSize.x;
+            layout.preferredHeight = preferredSize.y;
+            layout.minHeight = preferredSize.y;
+
+            return slider;
+        }
+
         public static VerticalLayoutGroup AddVerticalLayout(GameObject target, float spacing, RectOffset padding, TextAnchor alignment = TextAnchor.UpperCenter)
         {
             var layout = target.AddComponent<VerticalLayoutGroup>();

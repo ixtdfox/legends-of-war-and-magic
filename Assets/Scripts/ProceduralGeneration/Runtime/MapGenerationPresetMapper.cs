@@ -28,6 +28,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Runtime
             var seed = safeRequest.ResolveSeed();
             var settings = CreateRuntimeSettings();
             settings.name = "Runtime Map Generation Settings";
+            settings.ConfigureAssetCatalog(ProceduralAssetCatalogResolver.LoadDefaultCatalog());
 
             var sizePreset = ResolveSize(safeRequest.MapSize);
             var reliefPreset = ResolveRelief(safeRequest.Relief);
@@ -45,11 +46,17 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Runtime
                 reliefPreset.Lacunarity,
                 reliefPreset.HeightMultiplier,
                 landPreset.Shape,
+                reliefPreset.RidgeIntensity,
+                reliefPreset.ValleyIntensity,
+                reliefPreset.CliffIntensity,
+                reliefPreset.TerraceStrength,
+                reliefPreset.MicroReliefStrength,
                 landPreset.UseEdgeFalloff,
                 landPreset.FalloffStart,
                 landPreset.FalloffStrength);
             settings.ConfigureWater(true, waterPreset.Level, sizePreset.WaterPadding, waterPreset.Color);
-            settings.ConfigureProps(true, BuildPropCategories(settings, safeRequest.PropDensity));
+            settings.ConfigureProps(true, BuildPropCategories(settings, safeRequest.PropDensity, safeRequest.TreeDensity, settings.AssetCatalog));
+            settings.ConfigureTerrainDetails(true, ResolveDetailDensity(safeRequest.PropDensity), sizePreset.DetailResolution, 16);
 
             return new Result(settings, seed, safeRequest.BuildSummary(seed));
         }
@@ -69,9 +76,9 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Runtime
         {
             return option switch
             {
-                MapSizeOption.Small => new SizePreset(500f, 500f, 257, 18f),
-                MapSizeOption.Large => new SizePreset(1400f, 1400f, 513, 40f),
-                _ => new SizePreset(900f, 900f, 513, 28f)
+                MapSizeOption.Small => new SizePreset(500f, 500f, 257, 18f, 384),
+                MapSizeOption.Large => new SizePreset(1400f, 1400f, 513, 40f, 640),
+                _ => new SizePreset(900f, 900f, 513, 28f, 512)
             };
         }
 
@@ -79,9 +86,9 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Runtime
         {
             return option switch
             {
-                ReliefOption.Plains => new ReliefPreset(80f, 360f, 4, 0.34f, 1.85f, 0.50f),
-                ReliefOption.Mountains => new ReliefPreset(260f, 225f, 6, 0.54f, 2.18f, 1.0f),
-                _ => new ReliefPreset(145f, 285f, 5, 0.44f, 2.0f, 0.72f)
+                ReliefOption.Plains => new ReliefPreset(95f, 390f, 4, 0.34f, 1.82f, 0.58f, 0.16f, 0.16f, 0.06f, 0.02f, 0.08f),
+                ReliefOption.Mountains => new ReliefPreset(235f, 310f, 6, 0.49f, 2.05f, 0.88f, 0.66f, 0.42f, 0.62f, 0.12f, 0.15f),
+                _ => new ReliefPreset(165f, 275f, 5, 0.46f, 2.04f, 0.78f, 0.50f, 0.32f, 0.42f, 0.08f, 0.14f)
             };
         }
 
@@ -137,16 +144,38 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Runtime
 
         private static IReadOnlyList<PropCategoryPlacementSettings> BuildPropCategories(
             ProceduralLocationSettings settings,
-            PropDensityOption densityOption)
+            PropDensityOption densityOption,
+            float treeDensity,
+            ProceduralEnvironmentAssetCatalog assetCatalog)
         {
             var multiplier = densityOption switch
             {
-                PropDensityOption.Low => 0.45f,
-                PropDensityOption.High => 1.85f,
-                _ => 1f
+                PropDensityOption.Low => 0.65f,
+                PropDensityOption.High => 4.35f,
+                _ => 1.55f
             };
 
             var categories = new List<PropCategoryPlacementSettings>();
+            if (assetCatalog != null && assetCatalog.HasPropPrefabs())
+            {
+                for (var i = 0; i < assetCatalog.PropCategories.Count; i++)
+                {
+                    var category = assetCatalog.PropCategories[i];
+                    if (category == null || !category.HasPrefabs)
+                    {
+                        continue;
+                    }
+
+                    var placement = category.CreatePlacementSettings(multiplier, settings.WaterLevel, settings.TerrainHeight);
+                    categories.Add(TuneTreePlacementIfNeeded(placement, treeDensity));
+                }
+
+                if (categories.Count > 0)
+                {
+                    return categories;
+                }
+            }
+
             var sourceCategories = settings.PropCategories;
             if (sourceCategories != null && sourceCategories.Count > 0)
             {
@@ -158,43 +187,27 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Runtime
                         continue;
                     }
 
-                    categories.Add(CloneCategory(source, multiplier, settings.WaterLevel));
+                    if (ContainsPrototypePrefabs(source))
+                    {
+                        Debug.LogWarning(
+                            $"Prop category '{source.CategoryName}' was skipped because it references prototype runtime prefabs. " +
+                            "Rebuild the Idyllic environment catalog to generate production props.");
+                        continue;
+                    }
+
+                    categories.Add(TuneTreePlacementIfNeeded(CloneCategory(source, multiplier, settings.WaterLevel), treeDensity));
                 }
 
-                return categories;
+                if (categories.Count > 0)
+                {
+                    return categories;
+                }
             }
 
-            var forest = new PropCategoryPlacementSettings();
-            var density = densityOption switch
-            {
-                PropDensityOption.Low => 0.8f,
-                PropDensityOption.High => 4.5f,
-                _ => 2.0f
-            };
-
-            var minDistance = densityOption switch
-            {
-                PropDensityOption.Low => 16f,
-                PropDensityOption.High => 8f,
-                _ => 11f
-            };
-
-            forest.Configure(
-                "Prototype Forest",
-                true,
-                RuntimePrototypePropFactory.GetForestPrefabs(),
-                density,
-                minDistance,
-                new Vector2(0f, 34f),
-                new Vector2(settings.WaterLevel + 1f, settings.TerrainHeight),
-                new Vector2(0.75f, 1.35f),
-                true,
-                false,
-                false,
-                450f,
-                8f);
-
-            categories.Add(forest);
+            Debug.LogError(
+                "No production environment prop prefabs were resolved. " +
+                "Generation will continue without props instead of spawning primitive prototype trees/rocks/grass. " +
+                "Run Tools/Legends of War and Magic/Procedural Generation/Rebuild Environment Asset Catalog.");
             return categories;
         }
 
@@ -220,29 +233,204 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Runtime
                 source.ExpectLodGroup,
                 source.MaxDrawDistance,
                 source.AttemptsMultiplier);
+            clone.ConfigureRoleAndBiome(
+                source.Role,
+                source.UseClusterPlacement,
+                source.ClusterThreshold,
+                source.ClusterNoiseScale,
+                source.ClusterStrength,
+                source.SlopeAffinity,
+                source.ShoreAffinity,
+                source.ForestEdgeAffinity);
 
             return clone;
         }
 
+        private static PropCategoryPlacementSettings TuneTreePlacementIfNeeded(
+            PropCategoryPlacementSettings source,
+            float treeDensity)
+        {
+            if (source == null)
+            {
+                return source;
+            }
+
+            if (IsAccentTreeRole(source.Role))
+            {
+                return TuneAccentTreePlacement(source, treeDensity);
+            }
+
+            if (!IsCoreTreeRole(source.Role))
+            {
+                return source;
+            }
+
+            var normalized = Mathf.Clamp01(treeDensity);
+            var densityMultiplier = ResolveTreeDensityMultiplier(normalized);
+            var minDistance = Mathf.Lerp(
+                source.MinDistanceBetweenInstances * 1.35f,
+                Mathf.Max(2.35f, source.MinDistanceBetweenInstances * 0.34f),
+                normalized);
+            var slopeRange = source.AllowedSlopeRange;
+            slopeRange.y = Mathf.Lerp(Mathf.Min(slopeRange.y, 28f), Mathf.Max(slopeRange.y, 38f), normalized);
+
+            var tuned = new PropCategoryPlacementSettings();
+            tuned.Configure(
+                source.CategoryName,
+                source.Enabled,
+                source.Prefabs,
+                source.DensityPer10kSqm * densityMultiplier,
+                minDistance,
+                slopeRange,
+                source.AllowedHeightRange,
+                source.RandomScaleRange,
+                source.RandomYRotation,
+                source.WarnIfMissingLodGroup,
+                source.ExpectLodGroup,
+                source.MaxDrawDistance,
+                Mathf.Lerp(7f, 13f, normalized));
+
+            tuned.ConfigureRoleAndBiome(
+                source.Role,
+                true,
+                Mathf.Lerp(0.62f, 0.18f, normalized),
+                Mathf.Lerp(330f, 185f, normalized),
+                Mathf.Lerp(0.9f, 3.8f, normalized),
+                0.02f,
+                0.02f,
+                0f);
+
+            return tuned;
+        }
+
+        private static PropCategoryPlacementSettings TuneAccentTreePlacement(
+            PropCategoryPlacementSettings source,
+            float treeDensity)
+        {
+            var normalized = Mathf.Clamp01(treeDensity);
+            var densityMultiplier = Mathf.Lerp(0.18f, 0.95f, Mathf.SmoothStep(0f, 1f, normalized));
+            var tuned = new PropCategoryPlacementSettings();
+            tuned.Configure(
+                source.CategoryName,
+                source.Enabled,
+                source.Prefabs,
+                source.DensityPer10kSqm * densityMultiplier,
+                Mathf.Lerp(source.MinDistanceBetweenInstances * 1.35f, Mathf.Max(5.2f, source.MinDistanceBetweenInstances * 0.72f), normalized),
+                source.AllowedSlopeRange,
+                source.AllowedHeightRange,
+                source.RandomScaleRange,
+                source.RandomYRotation,
+                source.WarnIfMissingLodGroup,
+                source.ExpectLodGroup,
+                source.MaxDrawDistance,
+                Mathf.Lerp(8f, 12f, normalized));
+
+            tuned.ConfigureRoleAndBiome(
+                source.Role,
+                true,
+                Mathf.Lerp(0.72f, 0.48f, normalized),
+                130f,
+                Mathf.Lerp(1.6f, 3.1f, normalized),
+                0.02f,
+                0.02f,
+                0.2f);
+            return tuned;
+        }
+
+        private static bool IsCoreTreeRole(ProceduralPropRole role)
+        {
+            return role == ProceduralPropRole.Tree || role == ProceduralPropRole.ForestCoreTrees;
+        }
+
+        private static bool IsAccentTreeRole(ProceduralPropRole role)
+        {
+            return role == ProceduralPropRole.ForestAccentTrees;
+        }
+
+        private static bool ContainsPrototypePrefabs(PropCategoryPlacementSettings source)
+        {
+            if (source == null)
+            {
+                return false;
+            }
+
+            if (source.CategoryName.ToLowerInvariant().Contains("prototype"))
+            {
+                return true;
+            }
+
+            var prefabs = source.Prefabs;
+            if (prefabs == null)
+            {
+                return false;
+            }
+
+            for (var i = 0; i < prefabs.Length; i++)
+            {
+                var prefab = prefabs[i];
+                if (prefab != null && prefab.name.ToLowerInvariant().Contains("prototype"))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static float ResolveTreeDensityMultiplier(float normalizedDensity)
+        {
+            if (normalizedDensity <= 0.72f)
+            {
+                return Mathf.Lerp(0.18f, 1.2f, normalizedDensity / 0.72f);
+            }
+
+            var highRange = Mathf.InverseLerp(0.72f, 1f, normalizedDensity);
+            var eased = Mathf.SmoothStep(0f, 1f, highRange);
+            return Mathf.Lerp(1.2f, 5.4f, eased);
+        }
+
+        private static float ResolveDetailDensity(PropDensityOption option)
+        {
+            return option switch
+            {
+                PropDensityOption.Low => 0.75f,
+                PropDensityOption.High => 2.7f,
+                _ => 1.45f
+            };
+        }
+
         private readonly struct SizePreset
         {
-            public SizePreset(float width, float length, int heightmapResolution, float waterPadding)
+            public SizePreset(float width, float length, int heightmapResolution, float waterPadding, int detailResolution)
             {
                 Width = width;
                 Length = length;
                 HeightmapResolution = heightmapResolution;
                 WaterPadding = waterPadding;
+                DetailResolution = detailResolution;
             }
 
             public float Width { get; }
             public float Length { get; }
             public int HeightmapResolution { get; }
             public float WaterPadding { get; }
+            public int DetailResolution { get; }
         }
 
         private readonly struct ReliefPreset
         {
-            public ReliefPreset(float terrainHeight, float noiseScale, int octaves, float persistence, float lacunarity, float heightMultiplier)
+            public ReliefPreset(
+                float terrainHeight,
+                float noiseScale,
+                int octaves,
+                float persistence,
+                float lacunarity,
+                float heightMultiplier,
+                float ridgeIntensity,
+                float valleyIntensity,
+                float cliffIntensity,
+                float terraceStrength,
+                float microReliefStrength)
             {
                 TerrainHeight = terrainHeight;
                 NoiseScale = noiseScale;
@@ -250,6 +438,11 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Runtime
                 Persistence = persistence;
                 Lacunarity = lacunarity;
                 HeightMultiplier = heightMultiplier;
+                RidgeIntensity = ridgeIntensity;
+                ValleyIntensity = valleyIntensity;
+                CliffIntensity = cliffIntensity;
+                TerraceStrength = terraceStrength;
+                MicroReliefStrength = microReliefStrength;
             }
 
             public float TerrainHeight { get; }
@@ -258,6 +451,11 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Runtime
             public float Persistence { get; }
             public float Lacunarity { get; }
             public float HeightMultiplier { get; }
+            public float RidgeIntensity { get; }
+            public float ValleyIntensity { get; }
+            public float CliffIntensity { get; }
+            public float TerraceStrength { get; }
+            public float MicroReliefStrength { get; }
         }
 
         private readonly struct LandPreset

@@ -11,23 +11,49 @@ namespace LegendsOfWarAndMagic.Game.Player
         [SerializeField] private float sprintMultiplier = 1.55f;
         [SerializeField] private float jumpHeight = 2.2f;
         [SerializeField] private float gravity = -24f;
-        [SerializeField] private float rotationSpeed = 12f;
+        [SerializeField] private Transform viewCamera;
+        [SerializeField] private float mouseSensitivity = 0.12f;
+        [SerializeField] private float gamepadLookSpeed = 140f;
+        [SerializeField] private float minPitch = -82f;
+        [SerializeField] private float maxPitch = 82f;
+        [SerializeField] private bool lockCursorOnStart = true;
 
         private CharacterController controller;
         private float verticalVelocity;
+        private float pitch;
 
         private void Awake()
         {
             controller = GetComponent<CharacterController>();
         }
 
+        private void OnEnable()
+        {
+            if (lockCursorOnStart)
+            {
+                Cursor.lockState = CursorLockMode.Locked;
+                Cursor.visible = false;
+            }
+        }
+
+        private void OnDisable()
+        {
+            if (lockCursorOnStart)
+            {
+                Cursor.lockState = CursorLockMode.None;
+                Cursor.visible = true;
+            }
+        }
+
         private void Update()
         {
+            HandleLook();
+
             var moveInput = ReadMoveInput();
             var jumpPressed = ReadJumpPressed();
             var sprinting = ReadSprintPressed();
 
-            var moveDirection = BuildCameraRelativeDirection(moveInput);
+            var moveDirection = BuildPlayerRelativeDirection(moveInput);
             var speed = walkSpeed * (sprinting ? sprintMultiplier : 1f);
             var horizontalVelocity = moveDirection * speed;
 
@@ -46,11 +72,44 @@ namespace LegendsOfWarAndMagic.Game.Player
             var motion = horizontalVelocity;
             motion.y = verticalVelocity;
             controller.Move(motion * Time.deltaTime);
+        }
 
-            if (moveDirection.sqrMagnitude > 0.001f)
+        public void SetViewCamera(Transform cameraTransform)
+        {
+            viewCamera = cameraTransform;
+            pitch = 0f;
+            ApplyCameraPitch();
+        }
+
+        private void HandleLook()
+        {
+            var mouseDelta = Mouse.current != null ? Mouse.current.delta.ReadValue() : Vector2.zero;
+            var gamepadDelta = Gamepad.current != null ? Gamepad.current.rightStick.ReadValue() : Vector2.zero;
+
+            var yawDelta = mouseDelta.x * mouseSensitivity;
+            var pitchDelta = mouseDelta.y * mouseSensitivity;
+
+            if (gamepadDelta.sqrMagnitude > 0.0001f)
             {
-                var targetRotation = Quaternion.LookRotation(moveDirection, Vector3.up);
-                transform.rotation = Quaternion.Slerp(transform.rotation, targetRotation, rotationSpeed * Time.deltaTime);
+                yawDelta += gamepadDelta.x * gamepadLookSpeed * Time.deltaTime;
+                pitchDelta += gamepadDelta.y * gamepadLookSpeed * Time.deltaTime;
+            }
+
+            if (Mathf.Abs(yawDelta) <= 0.0001f && Mathf.Abs(pitchDelta) <= 0.0001f)
+            {
+                return;
+            }
+
+            transform.Rotate(Vector3.up, yawDelta, Space.Self);
+            pitch = Mathf.Clamp(pitch - pitchDelta, minPitch, maxPitch);
+            ApplyCameraPitch();
+        }
+
+        private void ApplyCameraPitch()
+        {
+            if (viewCamera != null)
+            {
+                viewCamera.localRotation = Quaternion.Euler(pitch, 0f, 0f);
             }
         }
 
@@ -99,22 +158,14 @@ namespace LegendsOfWarAndMagic.Game.Player
             return gamepad != null && gamepad.leftStickButton.isPressed;
         }
 
-        private Vector3 BuildCameraRelativeDirection(Vector2 input)
+        private Vector3 BuildPlayerRelativeDirection(Vector2 input)
         {
             if (input.sqrMagnitude <= 0.0001f)
             {
                 return Vector3.zero;
             }
 
-            var cameraTransform = UnityEngine.Camera.main != null ? UnityEngine.Camera.main.transform : transform;
-            var forward = cameraTransform.forward;
-            var right = cameraTransform.right;
-            forward.y = 0f;
-            right.y = 0f;
-            forward.Normalize();
-            right.Normalize();
-
-            return (forward * input.y + right * input.x).normalized;
+            return (transform.forward * input.y + transform.right * input.x).normalized;
         }
     }
 }

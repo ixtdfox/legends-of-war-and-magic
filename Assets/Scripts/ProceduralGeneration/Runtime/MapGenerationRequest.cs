@@ -45,6 +45,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Runtime
         public WaterAmountOption WaterAmount { get; set; } = WaterAmountOption.Normal;
         public ReliefOption Relief { get; set; } = ReliefOption.Hills;
         public PropDensityOption PropDensity { get; set; } = PropDensityOption.Normal;
+        public float TreeDensity { get; set; } = 0.72f;
         public string SeedText { get; set; } = string.Empty;
 
         public static MapGenerationRequest CreateDefault()
@@ -66,7 +67,17 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Runtime
 
         public string BuildSummary(int resolvedSeed)
         {
-            return $"Size={MapSize}, Land={LandType}, Water={WaterAmount}, Relief={Relief}, Props={PropDensity}, Seed={resolvedSeed}";
+            return $"Size={MapSize}, Land={LandType}, Water={WaterAmount}, Relief={Relief}, Props={PropDensity}, Forest={Clamp01(TreeDensity):P0}, Seed={resolvedSeed}";
+        }
+
+        private static float Clamp01(float value)
+        {
+            if (value < 0f)
+            {
+                return 0f;
+            }
+
+            return value > 1f ? 1f : value;
         }
 
         private static int StableStringHash(string value)

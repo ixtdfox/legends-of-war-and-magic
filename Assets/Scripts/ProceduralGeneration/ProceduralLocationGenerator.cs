@@ -165,6 +165,44 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration
                 first = false;
             }
 
+            if (context.TerrainDetailSummaries.Count > 0)
+            {
+                builder.Append(", DetailLayers=");
+                first = true;
+                foreach (var pair in context.TerrainDetailSummaries)
+                {
+                    if (!first)
+                    {
+                        builder.Append(" | ");
+                    }
+
+                    builder.Append(pair.Key);
+                    builder.Append(":cells=");
+                    builder.Append(pair.Value.OccupiedCells);
+                    builder.Append(",density=");
+                    builder.Append(pair.Value.TotalDensity);
+                    first = false;
+                }
+            }
+
+            if (context.RejectedByReason.Count > 0)
+            {
+                builder.Append(", Rejections=");
+                first = true;
+                foreach (var pair in context.RejectedByReason)
+                {
+                    if (!first)
+                    {
+                        builder.Append(" | ");
+                    }
+
+                    builder.Append(pair.Key);
+                    builder.Append(':');
+                    builder.Append(pair.Value);
+                    first = false;
+                }
+            }
+
             return builder.ToString();
         }
 
@@ -197,10 +235,21 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration
             var steps = new List<IGenerationStep>
             {
                 new ClearGeneratedContentStep(),
-                new TerrainGenerationStep(),
-                new WaterGenerationStep(),
-                new PropPlacementStep(),
-                new CreateBoundaryMarkersStep()
+                new CompositeGenerationStep(
+                    "Environment",
+                    new IGenerationStep[]
+                    {
+                        new TerrainGenerationStep(),
+                        new TerrainDetailGenerationStep(),
+                        new WaterGenerationStep(),
+                        new CompositeGenerationStep(
+                            "Environment Props",
+                            new IGenerationStep[]
+                            {
+                                new PropPlacementStep(),
+                                new CreateBoundaryMarkersStep()
+                            })
+                    })
             };
 
             return new GenerationPipeline(steps);

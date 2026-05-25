@@ -25,6 +25,8 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Core
         public GameObject GeneratedWater { get; set; }
 
         public IReadOnlyDictionary<string, int> SpawnedByCategory => spawnedByCategory;
+        public IReadOnlyDictionary<string, int> RejectedByReason => rejectedByReason;
+        public IReadOnlyDictionary<string, DetailLayerSummary> TerrainDetailSummaries => terrainDetailSummaries;
 
         public void RecordSpawn(string category, int count = 1)
         {
@@ -40,6 +42,46 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Core
             }
         }
 
+        public void RecordRejected(string category, string reason, int count = 1)
+        {
+            if (count <= 0)
+            {
+                return;
+            }
+
+            var safeCategory = string.IsNullOrWhiteSpace(category) ? "Uncategorized" : category;
+            var safeReason = string.IsNullOrWhiteSpace(reason) ? "Unknown" : reason;
+            var key = $"{safeCategory}/{safeReason}";
+            if (!rejectedByReason.TryAdd(key, count))
+            {
+                rejectedByReason[key] += count;
+            }
+        }
+
+        public void RecordTerrainDetailLayer(string detailName, int occupiedCells, int totalDensity)
+        {
+            if (string.IsNullOrWhiteSpace(detailName))
+            {
+                detailName = "Terrain Details";
+            }
+
+            terrainDetailSummaries[detailName] = new DetailLayerSummary(occupiedCells, totalDensity);
+        }
+
         private readonly Dictionary<string, int> spawnedByCategory = new();
+        private readonly Dictionary<string, int> rejectedByReason = new();
+        private readonly Dictionary<string, DetailLayerSummary> terrainDetailSummaries = new();
+
+        public readonly struct DetailLayerSummary
+        {
+            public DetailLayerSummary(int occupiedCells, int totalDensity)
+            {
+                OccupiedCells = occupiedCells;
+                TotalDensity = totalDensity;
+            }
+
+            public int OccupiedCells { get; }
+            public int TotalDensity { get; }
+        }
     }
 }
