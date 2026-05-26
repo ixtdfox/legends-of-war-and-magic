@@ -28,10 +28,13 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
             var propsRoot = new GameObject("GeneratedProps").transform;
             propsRoot.SetParent(context.GeneratedRoot, false);
 
-            for (var i = 0; i < context.Settings.PropCategories.Count; i++)
+            var placementQueue = BuildPlacementQueue(context.Settings.PropCategories);
+            var footprintGrid = new FootprintGrid2D(8f);
+            for (var i = 0; i < placementQueue.Count; i++)
             {
-                var random = new System.Random(unchecked(context.Seed * 486187739 + 97 + i * 104729));
-                PlaceCategory(context, context.Settings.PropCategories[i], terrain, propsRoot, random);
+                var workItem = placementQueue[i];
+                var random = new System.Random(unchecked(context.Seed * 486187739 + 97 + workItem.OriginalIndex * 104729));
+                PlaceCategory(context, workItem.Category, terrain, propsRoot, footprintGrid, random);
             }
         }
 
@@ -40,6 +43,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
             PropCategoryPlacementSettings category,
             Terrain terrain,
             Transform propsRoot,
+            FootprintGrid2D footprintGrid,
             System.Random random)
         {
             if (category == null || !category.Enabled || category.Prefabs == null || category.Prefabs.Length == 0 || category.DensityPer10kSqm <= 0f)
@@ -71,7 +75,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
             var minZ = worldBounds.min.z;
             var maxZ = worldBounds.max.z;
 
-            var spatialHash = new SpatialHash2D(category.MinDistanceBetweenInstances);
+            var categorySpacing = new PointSpacingHash2D(category.MinDistanceBetweenInstances);
             var minDistanceSqr = category.MinDistanceBetweenInstances * category.MinDistanceBetweenInstances;
             var maxAttempts = Mathf.Max(targetCount, Mathf.CeilToInt(targetCount * category.AttemptsMultiplier * ResolveAttemptBoost(category.Role)));
             var accepted = 0;
@@ -110,7 +114,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                 }
 
                 var point2D = new Vector2(point.x, point.z);
-                if (minDistanceSqr > 0f && spatialHash.IsOverlapping(point2D, minDistanceSqr))
+                if (minDistanceSqr > 0f && categorySpacing.IsOverlapping(point2D, minDistanceSqr))
                 {
                     context.RecordRejected(categoryName, "MinDistance");
                     continue;
@@ -123,23 +127,30 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                     continue;
                 }
 
+                var scaleRange = category.RandomScaleRange;
+                var uniformScale = Range(random, scaleRange.x, scaleRange.y);
+                var rotationY = category.RandomYRotation ? Range(random, 0f, 360f) : 0f;
                 var spawnPoint = point;
                 spawnPoint.y += ResolveVerticalOffset(category.Role, random);
                 var instance = Object.Instantiate(prefab, spawnPoint, Quaternion.identity, categoryRoot);
                 instance.name = $"{prefab.name}_{accepted + 1:D4}";
                 PrepareSpawnedInstance(instance);
-
-                var rotationY = category.RandomYRotation ? Range(random, 0f, 360f) : 0f;
                 instance.transform.rotation = Quaternion.Euler(0f, rotationY, 0f);
-
-                var scaleRange = category.RandomScaleRange;
-                var uniformScale = Range(random, scaleRange.x, scaleRange.y);
                 instance.transform.localScale *= uniformScale;
+
+                var footprint = ResolveFootprint(instance, category);
+                if (footprintGrid.IsOverlapping(footprint.Center, footprint.Radius))
+                {
+                    SafeDestroy(instance);
+                    context.RecordRejected(categoryName, "Overlap");
+                    continue;
+                }
 
                 ValidateLodSetup(category, prefab, instance, lodWarnedPrefabs);
                 ApplyDrawDistance(instance, category.MaxDrawDistance);
 
-                spatialHash.Add(point2D);
+                categorySpacing.Add(point2D);
+                footprintGrid.Add(footprint.Center, footprint.Radius);
                 accepted++;
             }
 
@@ -162,6 +173,55 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                     Debug.Log($"{summary} Generator-side draw distance culling enabled at {category.MaxDrawDistance:0.##} units.");
                 }
             }
+        }
+
+        private static List<CategoryPlacementWork> BuildPlacementQueue(IReadOnlyList<PropCategoryPlacementSettings> categories)
+        {
+            var queue = new List<CategoryPlacementWork>();
+            for (var i = 0; i < categories.Count; i++)
+            {
+                var category = categories[i];
+                if (category == null)
+                {
+                    continue;
+                }
+
+                queue.Add(new CategoryPlacementWork(category, i));
+            }
+
+            queue.Sort(ComparePlacementWork);
+            return queue;
+        }
+
+        private static int ComparePlacementWork(CategoryPlacementWork left, CategoryPlacementWork right)
+        {
+            var priorityComparison = ResolvePlacementPriority(left.Category.Role).CompareTo(ResolvePlacementPriority(right.Category.Role));
+            if (priorityComparison != 0)
+            {
+                return priorityComparison;
+            }
+
+            return left.OriginalIndex.CompareTo(right.OriginalIndex);
+        }
+
+        private static int ResolvePlacementPriority(ProceduralPropRole role)
+        {
+            return role switch
+            {
+                ProceduralPropRole.Cliff => 0,
+                ProceduralPropRole.RocksLarge => 1,
+                ProceduralPropRole.Rock => 2,
+                ProceduralPropRole.RocksSmallMedium => 2,
+                ProceduralPropRole.ForestCoreTrees => 3,
+                ProceduralPropRole.Tree => 3,
+                ProceduralPropRole.ForestAccentTrees => 4,
+                ProceduralPropRole.Bushes => 5,
+                ProceduralPropRole.Log => 6,
+                ProceduralPropRole.GroundPlants => 7,
+                ProceduralPropRole.ShorePlants => 8,
+                ProceduralPropRole.GroundGrass => 9,
+                _ => 10
+            };
         }
 
         private static float ResolveAttemptBoost(ProceduralPropRole role)
@@ -396,6 +456,153 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
             cullingGroup.Initialize(maxDrawDistance);
         }
 
+        private static Footprint ResolveFootprint(GameObject instance, PropCategoryPlacementSettings category)
+        {
+            var bounds = CalculateRendererBounds(instance);
+            var center = new Vector2(instance.transform.position.x, instance.transform.position.z);
+            var radius = category.MinDistanceBetweenInstances * ResolveFootprintMinDistanceFactor(category.Role);
+
+            if (bounds.HasValue)
+            {
+                center = new Vector2(bounds.Value.center.x, bounds.Value.center.z);
+                var rendererRadius = Mathf.Max(bounds.Value.extents.x, bounds.Value.extents.z);
+                radius = Mathf.Max(radius, rendererRadius * ResolveRendererFootprintFactor(category.Role));
+            }
+
+            radius = Mathf.Clamp(
+                radius + ResolveFootprintPadding(category.Role),
+                ResolveMinFootprintRadius(category.Role),
+                ResolveMaxFootprintRadius(category.Role));
+
+            return new Footprint(center, radius);
+        }
+
+        private static Bounds? CalculateRendererBounds(GameObject instance)
+        {
+            var renderers = instance.GetComponentsInChildren<Renderer>(true);
+            var hasBounds = false;
+            var bounds = default(Bounds);
+            for (var i = 0; i < renderers.Length; i++)
+            {
+                var renderer = renderers[i];
+                if (renderer == null)
+                {
+                    continue;
+                }
+
+                if (!hasBounds)
+                {
+                    bounds = renderer.bounds;
+                    hasBounds = true;
+                    continue;
+                }
+
+                bounds.Encapsulate(renderer.bounds);
+            }
+
+            return hasBounds ? bounds : null;
+        }
+
+        private static float ResolveFootprintMinDistanceFactor(ProceduralPropRole role)
+        {
+            return role switch
+            {
+                ProceduralPropRole.Cliff => 0.42f,
+                ProceduralPropRole.RocksLarge => 0.42f,
+                ProceduralPropRole.Rock => 0.35f,
+                ProceduralPropRole.RocksSmallMedium => 0.34f,
+                ProceduralPropRole.ForestCoreTrees => 0.28f,
+                ProceduralPropRole.Tree => 0.28f,
+                ProceduralPropRole.ForestAccentTrees => 0.24f,
+                ProceduralPropRole.Bushes => 0.30f,
+                ProceduralPropRole.Log => 0.30f,
+                ProceduralPropRole.GroundGrass => 0.18f,
+                ProceduralPropRole.GroundPlants => 0.22f,
+                ProceduralPropRole.ShorePlants => 0.22f,
+                _ => 0.25f
+            };
+        }
+
+        private static float ResolveRendererFootprintFactor(ProceduralPropRole role)
+        {
+            return role switch
+            {
+                ProceduralPropRole.Cliff => 0.82f,
+                ProceduralPropRole.RocksLarge => 0.82f,
+                ProceduralPropRole.Rock => 0.78f,
+                ProceduralPropRole.RocksSmallMedium => 0.76f,
+                ProceduralPropRole.ForestCoreTrees => 0.26f,
+                ProceduralPropRole.Tree => 0.26f,
+                ProceduralPropRole.ForestAccentTrees => 0.24f,
+                ProceduralPropRole.Bushes => 0.48f,
+                ProceduralPropRole.Log => 0.46f,
+                ProceduralPropRole.GroundGrass => 0.32f,
+                ProceduralPropRole.GroundPlants => 0.36f,
+                ProceduralPropRole.ShorePlants => 0.36f,
+                _ => 0.42f
+            };
+        }
+
+        private static float ResolveFootprintPadding(ProceduralPropRole role)
+        {
+            return role switch
+            {
+                ProceduralPropRole.Cliff => 1.3f,
+                ProceduralPropRole.RocksLarge => 1.1f,
+                ProceduralPropRole.Rock => 0.9f,
+                ProceduralPropRole.RocksSmallMedium => 0.9f,
+                ProceduralPropRole.ForestCoreTrees => 0.8f,
+                ProceduralPropRole.Tree => 0.8f,
+                ProceduralPropRole.ForestAccentTrees => 0.65f,
+                ProceduralPropRole.Bushes => 0.45f,
+                ProceduralPropRole.Log => 0.35f,
+                ProceduralPropRole.GroundGrass => 0.1f,
+                ProceduralPropRole.GroundPlants => 0.18f,
+                ProceduralPropRole.ShorePlants => 0.18f,
+                _ => 0.35f
+            };
+        }
+
+        private static float ResolveMinFootprintRadius(ProceduralPropRole role)
+        {
+            return role switch
+            {
+                ProceduralPropRole.Cliff => 3.5f,
+                ProceduralPropRole.RocksLarge => 2.4f,
+                ProceduralPropRole.Rock => 1.3f,
+                ProceduralPropRole.RocksSmallMedium => 1.0f,
+                ProceduralPropRole.ForestCoreTrees => 1.6f,
+                ProceduralPropRole.Tree => 1.6f,
+                ProceduralPropRole.ForestAccentTrees => 1.3f,
+                ProceduralPropRole.Bushes => 0.8f,
+                ProceduralPropRole.Log => 1.1f,
+                ProceduralPropRole.GroundGrass => 0.25f,
+                ProceduralPropRole.GroundPlants => 0.35f,
+                ProceduralPropRole.ShorePlants => 0.35f,
+                _ => 0.6f
+            };
+        }
+
+        private static float ResolveMaxFootprintRadius(ProceduralPropRole role)
+        {
+            return role switch
+            {
+                ProceduralPropRole.Cliff => 18f,
+                ProceduralPropRole.RocksLarge => 9f,
+                ProceduralPropRole.Rock => 6.5f,
+                ProceduralPropRole.RocksSmallMedium => 5.2f,
+                ProceduralPropRole.ForestCoreTrees => 4.8f,
+                ProceduralPropRole.Tree => 4.8f,
+                ProceduralPropRole.ForestAccentTrees => 4f,
+                ProceduralPropRole.Bushes => 3.2f,
+                ProceduralPropRole.Log => 4.5f,
+                ProceduralPropRole.GroundGrass => 1.1f,
+                ProceduralPropRole.GroundPlants => 1.6f,
+                ProceduralPropRole.ShorePlants => 1.6f,
+                _ => 2.4f
+            };
+        }
+
         private static bool TrySamplePoint(Terrain terrain, float worldX, float worldZ, out Vector3 point, out Vector3 normal)
         {
             var terrainPos = terrain.transform.position;
@@ -419,12 +626,116 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
             return true;
         }
 
-        private sealed class SpatialHash2D
+        private readonly struct CategoryPlacementWork
+        {
+            public CategoryPlacementWork(PropCategoryPlacementSettings category, int originalIndex)
+            {
+                Category = category;
+                OriginalIndex = originalIndex;
+            }
+
+            public PropCategoryPlacementSettings Category { get; }
+            public int OriginalIndex { get; }
+        }
+
+        private readonly struct Footprint
+        {
+            public Footprint(Vector2 center, float radius)
+            {
+                Center = center;
+                Radius = radius;
+            }
+
+            public Vector2 Center { get; }
+            public float Radius { get; }
+        }
+
+        private readonly struct FootprintEntry
+        {
+            public FootprintEntry(Vector2 center, float radius)
+            {
+                Center = center;
+                Radius = radius;
+            }
+
+            public Vector2 Center { get; }
+            public float Radius { get; }
+        }
+
+        private sealed class FootprintGrid2D
+        {
+            private readonly Dictionary<Vector2Int, List<FootprintEntry>> cells = new();
+            private readonly float cellSize;
+            private float maxRadius;
+
+            public FootprintGrid2D(float cellWorldSize)
+            {
+                cellSize = Mathf.Max(0.5f, cellWorldSize);
+            }
+
+            public void Add(Vector2 center, float radius)
+            {
+                var safeRadius = Mathf.Max(0.01f, radius);
+                var cell = GetCell(center);
+                if (!cells.TryGetValue(cell, out var entries))
+                {
+                    entries = new List<FootprintEntry>();
+                    cells.Add(cell, entries);
+                }
+
+                entries.Add(new FootprintEntry(center, safeRadius));
+                maxRadius = Mathf.Max(maxRadius, safeRadius);
+            }
+
+            public bool IsOverlapping(Vector2 center, float radius)
+            {
+                if (cells.Count == 0)
+                {
+                    return false;
+                }
+
+                var safeRadius = Mathf.Max(0.01f, radius);
+                var centerCell = GetCell(center);
+                var searchRadius = Mathf.CeilToInt((safeRadius + maxRadius) / cellSize) + 1;
+                for (var y = -searchRadius; y <= searchRadius; y++)
+                {
+                    for (var x = -searchRadius; x <= searchRadius; x++)
+                    {
+                        var cell = new Vector2Int(centerCell.x + x, centerCell.y + y);
+                        if (!cells.TryGetValue(cell, out var entries))
+                        {
+                            continue;
+                        }
+
+                        for (var i = 0; i < entries.Count; i++)
+                        {
+                            var entry = entries[i];
+                            var minDistance = safeRadius + entry.Radius;
+                            if ((entry.Center - center).sqrMagnitude < minDistance * minDistance)
+                            {
+                                return true;
+                            }
+                        }
+                    }
+                }
+
+                return false;
+            }
+
+            private Vector2Int GetCell(Vector2 point)
+            {
+                return new Vector2Int(
+                    Mathf.FloorToInt(point.x / cellSize),
+                    Mathf.FloorToInt(point.y / cellSize));
+            }
+        }
+
+        private sealed class PointSpacingHash2D
         {
             private readonly Dictionary<Vector2Int, List<Vector2>> cells = new();
             private readonly float cellSize;
 
-            public SpatialHash2D(float minDistance)
+            public PointSpacingHash2D(float minDistance)
             {
                 cellSize = Mathf.Max(0.01f, minDistance);
             }
