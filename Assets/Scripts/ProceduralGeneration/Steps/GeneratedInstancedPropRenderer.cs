@@ -16,6 +16,9 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
     {
         private const int MaxInstancesPerBatch = 1023;
 
+        [SerializeField] private ForestQualityLevel qualityPreset = ForestQualityLevel.High;
+        [SerializeField] private ForestLodSettings forestLodSettings = ForestLodSettings.CreatePreset(ForestQualityLevel.High);
+
         private readonly Dictionary<int, PropRenderPrototype> prototypeCache = new();
         private readonly Dictionary<Material, Material> instancedMaterialCache = new();
         private readonly Dictionary<DrawKey, DrawGroup> drawGroupsByKey = new();
@@ -25,6 +28,25 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
 
         public int InstanceCount => instanceCount;
         public int DrawGroupCount => drawGroups.Count;
+        public ForestQualityLevel QualityPreset => qualityPreset;
+        public ForestLodSettings CurrentForestLodSettings => forestLodSettings;
+
+        public void ConfigureForestRendering(ForestRenderingSettings settings)
+        {
+            if (settings == null)
+            {
+                return;
+            }
+
+            qualityPreset = settings.QualityPreset;
+            forestLodSettings = settings.ResolveLodSettings();
+        }
+
+        public void ApplyForestQualityPreset(ForestQualityLevel preset)
+        {
+            qualityPreset = preset;
+            forestLodSettings = ForestLodSettings.CreatePreset(preset);
+        }
 
         public int EstimateVisibleBatchCount(Camera camera)
         {
@@ -35,9 +57,10 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
 
             var cameraPosition = camera.transform.position;
             var batchCount = 0;
+            var settings = ResolveForestLodSettings();
             for (var i = 0; i < drawGroups.Count; i++)
             {
-                batchCount += drawGroups[i].EstimateBatchCount(cameraPosition);
+                batchCount += drawGroups[i].EstimateBatchCount(cameraPosition, settings);
             }
 
             return batchCount;
@@ -52,6 +75,22 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
             }
 
             return batchCount;
+        }
+
+        public void AddDiagnostics(Camera camera, IList<GeneratedInstancedPropDiagnostic> diagnostics)
+        {
+            if (diagnostics == null)
+            {
+                return;
+            }
+
+            var settings = ResolveForestLodSettings();
+            var hasCamera = camera != null;
+            var cameraPosition = hasCamera ? camera.transform.position : Vector3.zero;
+            for (var i = 0; i < drawGroups.Count; i++)
+            {
+                drawGroups[i].AddDiagnostic(cameraPosition, hasCamera, settings, diagnostics);
+            }
         }
 
         public bool TryGetPrefabLocalBounds(GameObject prefab, ProceduralPropRole role, out Bounds localBounds)
@@ -87,13 +126,14 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
             var rootMatrix = instanceTransform.localToWorldMatrix;
             var instanceCenter = instanceTransform.TransformPoint(prototype.LocalBounds.center);
             var drawDistance = Mathf.Max(0f, maxDrawDistance);
+            var sourcePrefabName = prefab.name;
 
             for (var i = 0; i < prototype.Elements.Length; i++)
             {
                 var element = prototype.Elements[i];
                 var group = GetOrCreateGroup(element);
                 var matrix = rootMatrix * element.LocalMatrix;
-                group.Add(matrix, instanceCenter, drawDistance);
+                group.Add(matrix, instanceCenter, drawDistance, prototype.MaxLodIndex, sourcePrefabName);
             }
 
             instanceCount++;
@@ -102,6 +142,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
 
         private void OnEnable()
         {
+            ResolveForestLodSettings();
             RenderPipelineManager.beginCameraRendering += OnBeginCameraRendering;
             Camera.onPreCull += OnCameraPreCull;
         }
@@ -154,11 +195,22 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                 return;
             }
 
+            var settings = ResolveForestLodSettings();
             var cameraPosition = camera.transform.position;
             for (var i = 0; i < drawGroups.Count; i++)
             {
-                drawGroups[i].Draw(camera, cameraPosition);
+                drawGroups[i].Draw(camera, cameraPosition, settings);
             }
+        }
+
+        private ForestLodSettings ResolveForestLodSettings()
+        {
+            if (forestLodSettings == null)
+            {
+                forestLodSettings = ForestLodSettings.CreatePreset(qualityPreset);
+            }
+
+            return forestLodSettings;
         }
 
         private DrawGroup GetOrCreateGroup(RenderElement element)
@@ -169,8 +221,11 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                 element.SubmeshIndex,
                 element.Layer,
                 element.RenderingLayerMask,
-                element.ShadowCastingMode,
-                element.ReceiveShadows);
+                element.SourceShadowCastingMode,
+                element.ReceiveShadows,
+                element.LodIndex,
+                element.UsesDistanceLod,
+                element.IsLeafLike);
 
             if (drawGroupsByKey.TryGetValue(key, out var group))
             {
@@ -224,13 +279,17 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
         private PropRenderPrototype BuildPrototype(GameObject prefab, PrototypeMode mode)
         {
             var root = prefab.transform;
-            var selectedRenderers = new List<MeshRenderer>();
+            var elements = new List<RenderElement>();
             var lodManagedRenderers = new HashSet<Renderer>();
+            var hasBounds = false;
+            var localBounds = default(Bounds);
+            var maxLodIndex = 0;
+            var hasLodElements = false;
 
             var lodGroups = prefab.GetComponentsInChildren<LODGroup>(true);
-            for (var i = 0; i < lodGroups.Length; i++)
+            for (var groupIndex = 0; groupIndex < lodGroups.Length; groupIndex++)
             {
-                var lods = lodGroups[i].GetLODs();
+                var lods = lodGroups[groupIndex].GetLODs();
                 for (var lodIndex = 0; lodIndex < lods.Length; lodIndex++)
                 {
                     var renderers = lods[lodIndex].renderers;
@@ -248,17 +307,33 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                         }
 
                         lodManagedRenderers.Add(renderer);
-                        if (lodIndex == 0 &&
-                            renderer is MeshRenderer meshRenderer &&
-                            !ShouldSkipRenderer(meshRenderer, mode))
+                        if (mode != PrototypeMode.LodOnly && lodIndex > 0)
                         {
-                            selectedRenderers.Add(meshRenderer);
+                            continue;
                         }
+
+                        if (renderer is not MeshRenderer meshRenderer ||
+                            ShouldSkipRenderer(meshRenderer, mode))
+                        {
+                            continue;
+                        }
+
+                        AddRendererElements(
+                            root,
+                            meshRenderer,
+                            lodIndex,
+                            mode == PrototypeMode.LodOnly,
+                            elements,
+                            ref localBounds,
+                            ref hasBounds);
+
+                        maxLodIndex = Mathf.Max(maxLodIndex, lodIndex);
+                        hasLodElements = true;
                     }
                 }
             }
 
-            if (mode != PrototypeMode.LodOnly)
+            if (mode != PrototypeMode.LodOnly || !hasLodElements)
             {
                 var meshRenderers = prefab.GetComponentsInChildren<MeshRenderer>(true);
                 for (var i = 0; i < meshRenderers.Length; i++)
@@ -271,52 +346,67 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                         continue;
                     }
 
-                    selectedRenderers.Add(renderer);
-                }
-            }
-
-            var elements = new List<RenderElement>();
-            var hasBounds = false;
-            var localBounds = default(Bounds);
-
-            for (var i = 0; i < selectedRenderers.Count; i++)
-            {
-                var renderer = selectedRenderers[i];
-                var filter = renderer.GetComponent<MeshFilter>();
-                var mesh = filter != null ? filter.sharedMesh : null;
-                if (mesh == null)
-                {
-                    continue;
-                }
-
-                var localMatrix = root.worldToLocalMatrix * renderer.transform.localToWorldMatrix;
-                EncapsulateTransformedBounds(mesh.bounds, localMatrix, ref localBounds, ref hasBounds);
-
-                var materials = renderer.sharedMaterials;
-                var submeshCount = Mathf.Min(mesh.subMeshCount, materials.Length);
-                for (var submeshIndex = 0; submeshIndex < submeshCount; submeshIndex++)
-                {
-                    var material = ResolveInstancedMaterial(materials[submeshIndex]);
-                    if (material == null)
-                    {
-                        continue;
-                    }
-
-                    elements.Add(new RenderElement(
-                        mesh,
-                        material,
-                        submeshIndex,
-                        localMatrix,
-                        renderer.gameObject.layer,
-                        renderer.renderingLayerMask,
-                        renderer.shadowCastingMode,
-                        renderer.receiveShadows));
+                    AddRendererElements(
+                        root,
+                        renderer,
+                        0,
+                        false,
+                        elements,
+                        ref localBounds,
+                        ref hasBounds);
                 }
             }
 
             return new PropRenderPrototype(
                 elements.ToArray(),
+                maxLodIndex,
                 hasBounds ? localBounds : new Bounds(Vector3.zero, Vector3.one));
+        }
+
+        private void AddRendererElements(
+            Transform root,
+            MeshRenderer renderer,
+            int lodIndex,
+            bool usesDistanceLod,
+            List<RenderElement> elements,
+            ref Bounds localBounds,
+            ref bool hasBounds)
+        {
+            var filter = renderer.GetComponent<MeshFilter>();
+            var mesh = filter != null ? filter.sharedMesh : null;
+            if (mesh == null)
+            {
+                return;
+            }
+
+            var localMatrix = root.worldToLocalMatrix * renderer.transform.localToWorldMatrix;
+            EncapsulateTransformedBounds(mesh.bounds, localMatrix, ref localBounds, ref hasBounds);
+
+            var materials = renderer.sharedMaterials;
+            var submeshCount = Mathf.Min(mesh.subMeshCount, materials.Length);
+            for (var submeshIndex = 0; submeshIndex < submeshCount; submeshIndex++)
+            {
+                var sourceMaterial = materials[submeshIndex];
+                var material = ResolveInstancedMaterial(sourceMaterial);
+                if (material == null)
+                {
+                    continue;
+                }
+
+                elements.Add(new RenderElement(
+                    mesh,
+                    material,
+                    sourceMaterial != null ? sourceMaterial.name : material.name,
+                    submeshIndex,
+                    localMatrix,
+                    renderer.gameObject.layer,
+                    renderer.renderingLayerMask,
+                    renderer.shadowCastingMode,
+                    renderer.receiveShadows,
+                    lodIndex,
+                    usesDistanceLod,
+                    IsLeafLike(renderer, mesh, sourceMaterial)));
+            }
         }
 
         private static bool ShouldSkipRenderer(MeshRenderer renderer, PrototypeMode mode)
@@ -337,6 +427,19 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                    key.Contains("grass") ||
                    key.Contains("flower") ||
                    key.Contains("river");
+        }
+
+        private static bool IsLeafLike(Renderer renderer, Mesh mesh, Material material)
+        {
+            var rendererName = renderer != null ? renderer.name : string.Empty;
+            var meshName = mesh != null ? mesh.name : string.Empty;
+            var materialName = material != null ? material.name : string.Empty;
+            var key = $"{rendererName} {meshName} {materialName}".ToLowerInvariant();
+            return key.Contains("leaf") ||
+                   key.Contains("leav") ||
+                   key.Contains("foliage") ||
+                   key.Contains("leave") ||
+                   key.Contains("billboard");
         }
 
         private Material ResolveInstancedMaterial(Material source)
@@ -400,15 +503,61 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
             return hasBounds ? worldBounds : new Bounds(matrix.MultiplyPoint3x4(localBounds.center), Vector3.zero);
         }
 
+        public readonly struct GeneratedInstancedPropDiagnostic
+        {
+            public GeneratedInstancedPropDiagnostic(
+                string sourcePrefabs,
+                string meshName,
+                string materialName,
+                int lodIndex,
+                bool usesDistanceLod,
+                int totalInstances,
+                int visibleInstances,
+                int trianglesPerInstance,
+                int verticesPerInstance,
+                ShadowCastingMode shadowCastingMode,
+                bool receiveShadows)
+            {
+                SourcePrefabs = sourcePrefabs;
+                MeshName = meshName;
+                MaterialName = materialName;
+                LodIndex = lodIndex;
+                UsesDistanceLod = usesDistanceLod;
+                TotalInstances = totalInstances;
+                VisibleInstances = visibleInstances;
+                TrianglesPerInstance = trianglesPerInstance;
+                VerticesPerInstance = verticesPerInstance;
+                ShadowCastingMode = shadowCastingMode;
+                ReceiveShadows = receiveShadows;
+            }
+
+            public string SourcePrefabs { get; }
+            public string MeshName { get; }
+            public string MaterialName { get; }
+            public int LodIndex { get; }
+            public bool UsesDistanceLod { get; }
+            public int TotalInstances { get; }
+            public int VisibleInstances { get; }
+            public int TrianglesPerInstance { get; }
+            public int VerticesPerInstance { get; }
+            public long TotalTriangles => (long)TotalInstances * TrianglesPerInstance;
+            public long VisibleTriangles => (long)VisibleInstances * TrianglesPerInstance;
+            public long VisibleVertices => (long)VisibleInstances * VerticesPerInstance;
+            public ShadowCastingMode ShadowCastingMode { get; }
+            public bool ReceiveShadows { get; }
+        }
+
         private sealed class PropRenderPrototype
         {
-            public PropRenderPrototype(RenderElement[] elements, Bounds localBounds)
+            public PropRenderPrototype(RenderElement[] elements, int maxLodIndex, Bounds localBounds)
             {
                 Elements = elements ?? Array.Empty<RenderElement>();
+                MaxLodIndex = Mathf.Max(0, maxLodIndex);
                 LocalBounds = localBounds;
             }
 
             public RenderElement[] Elements { get; }
+            public int MaxLodIndex { get; }
             public Bounds LocalBounds { get; }
             public bool HasRenderable => Elements.Length > 0;
         }
@@ -425,31 +574,43 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
             public RenderElement(
                 Mesh mesh,
                 Material material,
+                string sourceMaterialName,
                 int submeshIndex,
                 Matrix4x4 localMatrix,
                 int layer,
                 uint renderingLayerMask,
-                ShadowCastingMode shadowCastingMode,
-                bool receiveShadows)
+                ShadowCastingMode sourceShadowCastingMode,
+                bool receiveShadows,
+                int lodIndex,
+                bool usesDistanceLod,
+                bool isLeafLike)
             {
                 Mesh = mesh;
                 Material = material;
+                SourceMaterialName = sourceMaterialName;
                 SubmeshIndex = submeshIndex;
                 LocalMatrix = localMatrix;
                 Layer = layer;
                 RenderingLayerMask = renderingLayerMask;
-                ShadowCastingMode = shadowCastingMode;
+                SourceShadowCastingMode = sourceShadowCastingMode;
                 ReceiveShadows = receiveShadows;
+                LodIndex = Mathf.Max(0, lodIndex);
+                UsesDistanceLod = usesDistanceLod;
+                IsLeafLike = isLeafLike;
             }
 
             public Mesh Mesh { get; }
             public Material Material { get; }
+            public string SourceMaterialName { get; }
             public int SubmeshIndex { get; }
             public Matrix4x4 LocalMatrix { get; }
             public int Layer { get; }
             public uint RenderingLayerMask { get; }
-            public ShadowCastingMode ShadowCastingMode { get; }
+            public ShadowCastingMode SourceShadowCastingMode { get; }
             public bool ReceiveShadows { get; }
+            public int LodIndex { get; }
+            public bool UsesDistanceLod { get; }
+            public bool IsLeafLike { get; }
         }
 
         private readonly struct DrawKey : IEquatable<DrawKey>
@@ -459,8 +620,11 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
             private readonly int submeshIndex;
             private readonly int layer;
             private readonly uint renderingLayerMask;
-            private readonly ShadowCastingMode shadowCastingMode;
+            private readonly ShadowCastingMode sourceShadowCastingMode;
             private readonly bool receiveShadows;
+            private readonly int lodIndex;
+            private readonly bool usesDistanceLod;
+            private readonly bool isLeafLike;
 
             public DrawKey(
                 Mesh mesh,
@@ -468,16 +632,22 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                 int submeshIndex,
                 int layer,
                 uint renderingLayerMask,
-                ShadowCastingMode shadowCastingMode,
-                bool receiveShadows)
+                ShadowCastingMode sourceShadowCastingMode,
+                bool receiveShadows,
+                int lodIndex,
+                bool usesDistanceLod,
+                bool isLeafLike)
             {
                 this.mesh = mesh;
                 this.material = material;
                 this.submeshIndex = submeshIndex;
                 this.layer = layer;
                 this.renderingLayerMask = renderingLayerMask;
-                this.shadowCastingMode = shadowCastingMode;
+                this.sourceShadowCastingMode = sourceShadowCastingMode;
                 this.receiveShadows = receiveShadows;
+                this.lodIndex = lodIndex;
+                this.usesDistanceLod = usesDistanceLod;
+                this.isLeafLike = isLeafLike;
             }
 
             public bool Equals(DrawKey other)
@@ -487,8 +657,11 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                        submeshIndex == other.submeshIndex &&
                        layer == other.layer &&
                        renderingLayerMask == other.renderingLayerMask &&
-                       shadowCastingMode == other.shadowCastingMode &&
-                       receiveShadows == other.receiveShadows;
+                       sourceShadowCastingMode == other.sourceShadowCastingMode &&
+                       receiveShadows == other.receiveShadows &&
+                       lodIndex == other.lodIndex &&
+                       usesDistanceLod == other.usesDistanceLod &&
+                       isLeafLike == other.isLeafLike;
             }
 
             public override bool Equals(object obj)
@@ -505,8 +678,11 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                     hash = (hash * 397) ^ submeshIndex;
                     hash = (hash * 397) ^ layer;
                     hash = (hash * 397) ^ (int)renderingLayerMask;
-                    hash = (hash * 397) ^ (int)shadowCastingMode;
+                    hash = (hash * 397) ^ (int)sourceShadowCastingMode;
                     hash = (hash * 397) ^ receiveShadows.GetHashCode();
+                    hash = (hash * 397) ^ lodIndex;
+                    hash = (hash * 397) ^ usesDistanceLod.GetHashCode();
+                    hash = (hash * 397) ^ isLeafLike.GetHashCode();
                     return hash;
                 }
             }
@@ -516,14 +692,22 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
         {
             private readonly Mesh mesh;
             private readonly Material material;
+            private readonly string sourceMaterialName;
             private readonly int submeshIndex;
             private readonly int layer;
             private readonly uint renderingLayerMask;
-            private readonly ShadowCastingMode shadowCastingMode;
+            private readonly ShadowCastingMode sourceShadowCastingMode;
             private readonly bool receiveShadows;
+            private readonly int lodIndex;
+            private readonly bool usesDistanceLod;
+            private readonly bool isLeafLike;
+            private readonly int trianglesPerInstance;
+            private readonly int verticesPerInstance;
             private readonly List<Matrix4x4> matrices = new();
             private readonly List<Vector3> centers = new();
             private readonly List<float> maxDrawDistances = new();
+            private readonly List<int> maxLodIndices = new();
+            private readonly HashSet<string> sourcePrefabs = new(StringComparer.Ordinal);
 
             private Matrix4x4[] visibleMatrices = Array.Empty<Matrix4x4>();
 
@@ -531,44 +715,66 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
             {
                 mesh = element.Mesh;
                 material = element.Material;
+                sourceMaterialName = element.SourceMaterialName;
                 submeshIndex = element.SubmeshIndex;
                 layer = element.Layer;
                 renderingLayerMask = element.RenderingLayerMask;
-                shadowCastingMode = element.ShadowCastingMode;
+                sourceShadowCastingMode = element.SourceShadowCastingMode;
                 receiveShadows = element.ReceiveShadows;
+                lodIndex = element.LodIndex;
+                usesDistanceLod = element.UsesDistanceLod;
+                isLeafLike = element.IsLeafLike;
+                trianglesPerInstance = CountSubmeshTriangles(mesh, submeshIndex);
+                verticesPerInstance = mesh != null ? mesh.vertexCount : 0;
             }
 
             public int TotalBatchCount => Mathf.CeilToInt(matrices.Count / (float)MaxInstancesPerBatch);
 
-            public void Add(Matrix4x4 matrix, Vector3 center, float maxDrawDistance)
+            public void Add(
+                Matrix4x4 matrix,
+                Vector3 center,
+                float maxDrawDistance,
+                int maxLodIndex,
+                string sourcePrefabName)
             {
                 matrices.Add(matrix);
                 centers.Add(center);
                 maxDrawDistances.Add(maxDrawDistance);
+                maxLodIndices.Add(Mathf.Max(0, maxLodIndex));
+                if (!string.IsNullOrWhiteSpace(sourcePrefabName))
+                {
+                    sourcePrefabs.Add(sourcePrefabName);
+                }
             }
 
-            public int EstimateBatchCount(Vector3 cameraPosition)
+            public int EstimateBatchCount(Vector3 cameraPosition, ForestLodSettings settings)
             {
-                var visibleCount = 0;
-                for (var i = 0; i < matrices.Count; i++)
-                {
-                    var maxDrawDistance = maxDrawDistances[i];
-                    if (maxDrawDistance > 0f)
-                    {
-                        var maxSqrDistance = maxDrawDistance * maxDrawDistance;
-                        if ((centers[i] - cameraPosition).sqrMagnitude > maxSqrDistance)
-                        {
-                            continue;
-                        }
-                    }
-
-                    visibleCount++;
-                }
-
+                var visibleCount = CountVisible(cameraPosition, true, settings);
                 return Mathf.CeilToInt(visibleCount / (float)MaxInstancesPerBatch);
             }
 
-            public void Draw(Camera camera, Vector3 cameraPosition)
+            public void AddDiagnostic(
+                Vector3 cameraPosition,
+                bool hasCamera,
+                ForestLodSettings settings,
+                IList<GeneratedInstancedPropDiagnostic> diagnostics)
+            {
+                var visibleCount = CountVisible(cameraPosition, hasCamera, settings);
+                diagnostics.Add(new GeneratedInstancedPropDiagnostic(
+                    SourcePrefabsText,
+                    mesh != null ? mesh.name : string.Empty,
+                    sourceMaterialName,
+                    lodIndex,
+                    usesDistanceLod,
+                    matrices.Count,
+                    visibleCount,
+                    trianglesPerInstance,
+                    verticesPerInstance,
+                    ResolveShadowCastingMode(settings),
+                    receiveShadows));
+            }
+
+            public void Draw(Camera camera, Vector3 cameraPosition, ForestLodSettings settings)
             {
                 if (mesh == null || material == null || matrices.Count == 0)
                 {
@@ -582,14 +788,9 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                 var visibleBounds = default(Bounds);
                 for (var i = 0; i < matrices.Count; i++)
                 {
-                    var maxDrawDistance = maxDrawDistances[i];
-                    if (maxDrawDistance > 0f)
+                    if (ResolveActiveLod(i, cameraPosition, true, settings) != lodIndex)
                     {
-                        var maxSqrDistance = maxDrawDistance * maxDrawDistance;
-                        if ((centers[i] - cameraPosition).sqrMagnitude > maxSqrDistance)
-                        {
-                            continue;
-                        }
+                        continue;
                     }
 
                     var matrix = matrices[i];
@@ -621,7 +822,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                     camera = camera,
                     layer = layer,
                     renderingLayerMask = renderingLayerMask,
-                    shadowCastingMode = shadowCastingMode,
+                    shadowCastingMode = ResolveShadowCastingMode(settings),
                     receiveShadows = receiveShadows,
                     worldBounds = visibleBounds
                 };
@@ -631,6 +832,92 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                     var count = Mathf.Min(MaxInstancesPerBatch, visibleCount - start);
                     Graphics.RenderMeshInstanced(renderParams, mesh, submeshIndex, visibleMatrices, count, start);
                 }
+            }
+
+            private int CountVisible(Vector3 cameraPosition, bool hasCamera, ForestLodSettings settings)
+            {
+                if (!hasCamera)
+                {
+                    return matrices.Count;
+                }
+
+                var visibleCount = 0;
+                for (var i = 0; i < matrices.Count; i++)
+                {
+                    if (ResolveActiveLod(i, cameraPosition, true, settings) == lodIndex)
+                    {
+                        visibleCount++;
+                    }
+                }
+
+                return visibleCount;
+            }
+
+            private int ResolveActiveLod(int index, Vector3 cameraPosition, bool hasCamera, ForestLodSettings settings)
+            {
+                if (!hasCamera)
+                {
+                    return lodIndex;
+                }
+
+                var maxDrawDistance = maxDrawDistances[index];
+                var distance = Vector3.Distance(centers[index], cameraPosition);
+                if (!usesDistanceLod)
+                {
+                    return maxDrawDistance <= 0f || distance <= maxDrawDistance ? 0 : -1;
+                }
+
+                settings ??= ForestLodSettings.CreatePreset(ForestQualityLevel.High);
+                return settings.ResolveLodIndex(distance, maxDrawDistance, maxLodIndices[index]);
+            }
+
+            private ShadowCastingMode ResolveShadowCastingMode(ForestLodSettings settings)
+            {
+                if (!usesDistanceLod || sourceShadowCastingMode == ShadowCastingMode.Off)
+                {
+                    return sourceShadowCastingMode;
+                }
+
+                settings ??= ForestLodSettings.CreatePreset(ForestQualityLevel.High);
+                if (settings.DisableAllShadowsAfterLod1 && lodIndex > 1)
+                {
+                    return ShadowCastingMode.Off;
+                }
+
+                if (settings.DisableLeafShadowsAfterLod0 && lodIndex > 0 && isLeafLike)
+                {
+                    return ShadowCastingMode.Off;
+                }
+
+                if (settings.ShadowDistance <= settings.Lod0Distance && lodIndex > 0)
+                {
+                    return ShadowCastingMode.Off;
+                }
+
+                return sourceShadowCastingMode;
+            }
+
+            private string SourcePrefabsText
+            {
+                get
+                {
+                    if (sourcePrefabs.Count == 0)
+                    {
+                        return string.Empty;
+                    }
+
+                    return string.Join(", ", sourcePrefabs);
+                }
+            }
+
+            private static int CountSubmeshTriangles(Mesh sourceMesh, int sourceSubmesh)
+            {
+                if (sourceMesh == null || sourceSubmesh < 0 || sourceSubmesh >= sourceMesh.subMeshCount)
+                {
+                    return 0;
+                }
+
+                return (int)(sourceMesh.GetIndexCount(sourceSubmesh) / 3);
             }
 
             private void EnsureVisibleCapacity(int capacity)

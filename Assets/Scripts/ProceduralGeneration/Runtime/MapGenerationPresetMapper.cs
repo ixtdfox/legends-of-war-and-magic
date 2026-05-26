@@ -56,8 +56,13 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Runtime
                 landPreset.FalloffStart,
                 landPreset.FalloffStrength);
             settings.ConfigureWater(true, waterPreset.Level, sizePreset.WaterPadding, waterPreset.Color);
+            settings.ConfigureForestRendering(ResolveForestQuality(safeRequest.PropDensity, safeRequest.TreeDensity));
             settings.ConfigureProps(true, BuildPropCategories(settings, safeRequest.PropDensity, safeRequest.TreeDensity, settings.AssetCatalog));
-            settings.ConfigureTerrainDetails(true, ResolveDetailDensity(safeRequest.PropDensity), sizePreset.DetailResolution, 64);
+            settings.ConfigureTerrainDetails(
+                true,
+                ResolveDetailDensity(safeRequest.PropDensity) * settings.ForestLodSettings.FoliageDensityScale,
+                sizePreset.DetailResolution,
+                64);
 
             return new Result(settings, seed, safeRequest.BuildSummary(seed));
         }
@@ -169,6 +174,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Runtime
 
                     var placement = category.CreatePlacementSettings(multiplier, settings.WaterLevel, settings.TerrainHeight);
                     placement = TuneRuntimePropPlacementIfNeeded(placement, densityOption, treeDensity);
+                    placement = ApplyForestRenderBudget(placement, settings.ForestLodSettings);
                     if (placement == null)
                     {
                         continue;
@@ -203,6 +209,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Runtime
                     }
 
                     var placement = TuneRuntimePropPlacementIfNeeded(CloneCategory(source, multiplier, settings.WaterLevel), densityOption, treeDensity);
+                    placement = ApplyForestRenderBudget(placement, settings.ForestLodSettings);
                     if (placement != null)
                     {
                         categories.Add(placement);
@@ -220,6 +227,88 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Runtime
                 "Generation will continue without props instead of spawning primitive prototype trees/rocks/grass. " +
                 "Run Tools/Legends of War and Magic/Procedural Generation/Organize Fristy Nature Resources.");
             return categories;
+        }
+
+        private static ForestQualityLevel ResolveForestQuality(PropDensityOption densityOption, float treeDensity)
+        {
+            var normalizedTrees = Mathf.Clamp01(treeDensity);
+            if (densityOption == PropDensityOption.Low && normalizedTrees < 0.45f)
+            {
+                return ForestQualityLevel.Medium;
+            }
+
+            if (densityOption == PropDensityOption.High || normalizedTrees >= 0.72f)
+            {
+                return ForestQualityLevel.High;
+            }
+
+            return ForestQualityLevel.High;
+        }
+
+        private static PropCategoryPlacementSettings ApplyForestRenderBudget(
+            PropCategoryPlacementSettings source,
+            ForestLodSettings forestLodSettings)
+        {
+            if (source == null || forestLodSettings == null)
+            {
+                return source;
+            }
+
+            var density = source.DensityPer10kSqm;
+            var maxDrawDistance = source.MaxDrawDistance;
+
+            if (IsCoreTreeRole(source.Role) || IsAccentTreeRole(source.Role))
+            {
+                maxDrawDistance = ResolveLimitedDrawDistance(maxDrawDistance, forestLodSettings.TreeCullDistance);
+            }
+            else if (IsForestCompanionRole(source.Role))
+            {
+                density *= forestLodSettings.FoliageDensityScale;
+            }
+            else
+            {
+                return source;
+            }
+
+            var tuned = new PropCategoryPlacementSettings();
+            tuned.Configure(
+                source.CategoryName,
+                source.Enabled,
+                source.Prefabs,
+                density,
+                source.MinDistanceBetweenInstances,
+                source.AllowedSlopeRange,
+                source.AllowedHeightRange,
+                source.RandomScaleRange,
+                source.RandomYRotation,
+                source.WarnIfMissingLodGroup,
+                source.ExpectLodGroup,
+                maxDrawDistance,
+                source.AttemptsMultiplier);
+
+            tuned.ConfigureRoleAndBiome(
+                source.Role,
+                source.UseClusterPlacement,
+                source.ClusterThreshold,
+                source.ClusterNoiseScale,
+                source.ClusterStrength,
+                source.SlopeAffinity,
+                source.ShoreAffinity,
+                source.ForestEdgeAffinity);
+
+            return tuned;
+        }
+
+        private static float ResolveLimitedDrawDistance(float categoryDistance, float forestCullDistance)
+        {
+            if (forestCullDistance <= 0f)
+            {
+                return categoryDistance;
+            }
+
+            return categoryDistance <= 0f
+                ? forestCullDistance
+                : Mathf.Min(categoryDistance, forestCullDistance);
         }
 
         private static PropCategoryPlacementSettings TuneRuntimePropPlacementIfNeeded(
@@ -376,6 +465,14 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Runtime
         private static bool IsAccentTreeRole(ProceduralPropRole role)
         {
             return role == ProceduralPropRole.ForestAccentTrees;
+        }
+
+        private static bool IsForestCompanionRole(ProceduralPropRole role)
+        {
+            return role == ProceduralPropRole.Bushes ||
+                   role == ProceduralPropRole.GroundGrass ||
+                   role == ProceduralPropRole.GroundPlants ||
+                   role == ProceduralPropRole.ShorePlants;
         }
 
         private static bool ShouldUseDenseForestPropBudget(PropDensityOption densityOption, float treeDensity)

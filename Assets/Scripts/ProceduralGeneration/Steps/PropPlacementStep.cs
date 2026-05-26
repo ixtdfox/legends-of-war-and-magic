@@ -31,6 +31,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
             var propsRoot = new GameObject("GeneratedProps").transform;
             propsRoot.SetParent(context.GeneratedRoot, false);
             var instancedRenderer = propsRoot.gameObject.AddComponent<GeneratedInstancedPropRenderer>();
+            instancedRenderer.ConfigureForestRendering(context.Settings.ForestRendering);
 
             var placementQueue = BuildPlacementQueue(context.Settings.PropCategories);
             var footprintGrid = new FootprintGrid2D(8f);

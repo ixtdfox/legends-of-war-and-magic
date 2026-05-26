@@ -267,6 +267,9 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Config
         [Header("Terrain Details")]
         [SerializeField] private TerrainDetailGenerationSettings terrainDetails = new();
 
+        [Header("Forest Rendering")]
+        [SerializeField] private ForestRenderingSettings forestRendering = new();
+
         [Header("Environment Assets")]
         [SerializeField] private ProceduralEnvironmentAssetCatalog assetCatalog;
 
@@ -276,6 +279,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Config
         public PropPlacementGenerationSettings Props => props;
         public WaterGenerationSettings Water => water;
         public TerrainDetailGenerationSettings TerrainDetails => terrainDetails;
+        public ForestRenderingSettings ForestRendering => forestRendering;
         public ProceduralEnvironmentAssetCatalog AssetCatalog => assetCatalog;
 
         public float WorldWidth => global.WorldWidth;
@@ -308,6 +312,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Config
         public float TerrainDetailDensityMultiplier => terrainDetails.DensityMultiplier;
         public int TerrainDetailResolution => terrainDetails.DetailResolution;
         public int TerrainDetailResolutionPerPatch => terrainDetails.DetailResolutionPerPatch;
+        public ForestLodSettings ForestLodSettings => forestRendering.ResolveLodSettings();
 
         public void ConfigureAssetCatalog(ProceduralEnvironmentAssetCatalog catalog)
         {
@@ -374,6 +379,11 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Config
         public void ConfigureTerrainDetails(bool enabled, float densityMultiplier, int resolution, int resolutionPerPatch)
         {
             terrainDetails.Configure(enabled, densityMultiplier, resolution, resolutionPerPatch);
+        }
+
+        public void ConfigureForestRendering(ForestQualityLevel qualityPreset, bool usePresetValues = true)
+        {
+            forestRendering.Configure(qualityPreset, usePresetValues);
         }
 
         public Bounds GetWorldBounds()
