@@ -147,6 +147,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                 }
 
                 ValidateLodSetup(category, prefab, instance, lodWarnedPrefabs);
+                EnsureBlockingCollision(instance, category);
                 ApplyDrawDistance(instance, category.MaxDrawDistance);
 
                 categorySpacing.Add(point2D);
@@ -456,6 +457,153 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
             cullingGroup.Initialize(maxDrawDistance);
         }
 
+        private static void EnsureBlockingCollision(GameObject instance, PropCategoryPlacementSettings category)
+        {
+            if (!ShouldBlockPlayer(category.Role))
+            {
+                return;
+            }
+
+            if (NormalizeExistingBlockingColliders(instance))
+            {
+                return;
+            }
+
+            var bounds = CalculateLocalRendererBounds(instance);
+            if (!bounds.HasValue)
+            {
+                return;
+            }
+
+            if (IsTreeRole(category.Role))
+            {
+                AddTreeTrunkCollider(instance, bounds.Value);
+                return;
+            }
+
+            if (category.Role == ProceduralPropRole.Bushes)
+            {
+                AddBushCollider(instance, bounds.Value);
+                return;
+            }
+
+            AddBoundsCollider(instance, bounds.Value, category.Role);
+        }
+
+        private static bool ShouldBlockPlayer(ProceduralPropRole role)
+        {
+            return role switch
+            {
+                ProceduralPropRole.Tree => true,
+                ProceduralPropRole.ForestCoreTrees => true,
+                ProceduralPropRole.ForestAccentTrees => true,
+                ProceduralPropRole.Rock => true,
+                ProceduralPropRole.RocksSmallMedium => true,
+                ProceduralPropRole.RocksLarge => true,
+                ProceduralPropRole.Cliff => true,
+                ProceduralPropRole.Log => true,
+                ProceduralPropRole.Bushes => true,
+                _ => false
+            };
+        }
+
+        private static bool IsTreeRole(ProceduralPropRole role)
+        {
+            return role == ProceduralPropRole.Tree ||
+                   role == ProceduralPropRole.ForestCoreTrees ||
+                   role == ProceduralPropRole.ForestAccentTrees;
+        }
+
+        private static bool NormalizeExistingBlockingColliders(GameObject instance)
+        {
+            var colliders = instance.GetComponentsInChildren<Collider>(true);
+            var hasBlockingCollider = false;
+            for (var i = 0; i < colliders.Length; i++)
+            {
+                var collider = colliders[i];
+                if (collider == null || !IsUsableCollider(collider))
+                {
+                    continue;
+                }
+
+                collider.enabled = true;
+                collider.isTrigger = false;
+                hasBlockingCollider = true;
+            }
+
+            return hasBlockingCollider;
+        }
+
+        private static bool IsUsableCollider(Collider collider)
+        {
+            return collider switch
+            {
+                MeshCollider meshCollider => meshCollider.sharedMesh != null,
+                _ => true
+            };
+        }
+
+        private static void AddTreeTrunkCollider(GameObject instance, Bounds localBounds)
+        {
+            var collider = instance.AddComponent<CapsuleCollider>();
+            var xzDiameter = Mathf.Min(localBounds.size.x, localBounds.size.z);
+            collider.direction = 1;
+            collider.radius = Mathf.Clamp(xzDiameter * 0.13f, 0.18f, 0.85f);
+            collider.height = Mathf.Clamp(localBounds.size.y * 0.72f, collider.radius * 2.25f, localBounds.size.y);
+            collider.center = new Vector3(
+                localBounds.center.x,
+                localBounds.min.y + collider.height * 0.5f,
+                localBounds.center.z);
+            collider.isTrigger = false;
+            collider.enabled = true;
+        }
+
+        private static void AddBushCollider(GameObject instance, Bounds localBounds)
+        {
+            var collider = instance.AddComponent<CapsuleCollider>();
+            var xzDiameter = Mathf.Min(localBounds.size.x, localBounds.size.z);
+            collider.direction = 1;
+            collider.radius = Mathf.Clamp(xzDiameter * 0.28f, 0.28f, 1.35f);
+            collider.height = Mathf.Clamp(localBounds.size.y * 0.72f, collider.radius * 2f, localBounds.size.y);
+            collider.center = new Vector3(
+                localBounds.center.x,
+                localBounds.min.y + collider.height * 0.5f,
+                localBounds.center.z);
+            collider.isTrigger = false;
+            collider.enabled = true;
+        }
+
+        private static void AddBoundsCollider(GameObject instance, Bounds localBounds, ProceduralPropRole role)
+        {
+            var collider = instance.AddComponent<BoxCollider>();
+            var shrink = ResolveBoundsColliderShrink(role);
+            var size = new Vector3(
+                Mathf.Max(0.1f, localBounds.size.x * shrink.x),
+                Mathf.Max(0.1f, localBounds.size.y * shrink.y),
+                Mathf.Max(0.1f, localBounds.size.z * shrink.z));
+
+            collider.size = size;
+            collider.center = new Vector3(
+                localBounds.center.x,
+                localBounds.min.y + size.y * 0.5f,
+                localBounds.center.z);
+            collider.isTrigger = false;
+            collider.enabled = true;
+        }
+
+        private static Vector3 ResolveBoundsColliderShrink(ProceduralPropRole role)
+        {
+            return role switch
+            {
+                ProceduralPropRole.Cliff => new Vector3(0.9f, 0.9f, 0.9f),
+                ProceduralPropRole.RocksLarge => new Vector3(0.84f, 0.78f, 0.84f),
+                ProceduralPropRole.Rock => new Vector3(0.82f, 0.76f, 0.82f),
+                ProceduralPropRole.RocksSmallMedium => new Vector3(0.78f, 0.72f, 0.78f),
+                ProceduralPropRole.Log => new Vector3(0.86f, 0.55f, 0.86f),
+                _ => new Vector3(0.82f, 0.76f, 0.82f)
+            };
+        }
+
         private static Footprint ResolveFootprint(GameObject instance, PropCategoryPlacementSettings category)
         {
             var bounds = CalculateRendererBounds(instance);
@@ -501,6 +649,47 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
             }
 
             return hasBounds ? bounds : null;
+        }
+
+        private static Bounds? CalculateLocalRendererBounds(GameObject instance)
+        {
+            var renderers = instance.GetComponentsInChildren<Renderer>(true);
+            var root = instance.transform;
+            var hasBounds = false;
+            var localBounds = default(Bounds);
+
+            for (var i = 0; i < renderers.Length; i++)
+            {
+                var renderer = renderers[i];
+                if (renderer == null)
+                {
+                    continue;
+                }
+
+                EncapsulateLocalBoundsCorner(root, renderer.bounds.min, ref localBounds, ref hasBounds);
+                EncapsulateLocalBoundsCorner(root, renderer.bounds.max, ref localBounds, ref hasBounds);
+                EncapsulateLocalBoundsCorner(root, new Vector3(renderer.bounds.min.x, renderer.bounds.min.y, renderer.bounds.max.z), ref localBounds, ref hasBounds);
+                EncapsulateLocalBoundsCorner(root, new Vector3(renderer.bounds.min.x, renderer.bounds.max.y, renderer.bounds.min.z), ref localBounds, ref hasBounds);
+                EncapsulateLocalBoundsCorner(root, new Vector3(renderer.bounds.max.x, renderer.bounds.min.y, renderer.bounds.min.z), ref localBounds, ref hasBounds);
+                EncapsulateLocalBoundsCorner(root, new Vector3(renderer.bounds.min.x, renderer.bounds.max.y, renderer.bounds.max.z), ref localBounds, ref hasBounds);
+                EncapsulateLocalBoundsCorner(root, new Vector3(renderer.bounds.max.x, renderer.bounds.min.y, renderer.bounds.max.z), ref localBounds, ref hasBounds);
+                EncapsulateLocalBoundsCorner(root, new Vector3(renderer.bounds.max.x, renderer.bounds.max.y, renderer.bounds.min.z), ref localBounds, ref hasBounds);
+            }
+
+            return hasBounds ? localBounds : null;
+        }
+
+        private static void EncapsulateLocalBoundsCorner(Transform root, Vector3 worldCorner, ref Bounds localBounds, ref bool hasBounds)
+        {
+            var localCorner = root.InverseTransformPoint(worldCorner);
+            if (!hasBounds)
+            {
+                localBounds = new Bounds(localCorner, Vector3.zero);
+                hasBounds = true;
+                return;
+            }
+
+            localBounds.Encapsulate(localCorner);
         }
 
         private static float ResolveFootprintMinDistanceFactor(ProceduralPropRole role)

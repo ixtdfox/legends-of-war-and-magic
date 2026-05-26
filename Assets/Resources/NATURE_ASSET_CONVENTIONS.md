@@ -72,3 +72,11 @@ Unity может создать служебные материалы рядом
 - `Tree_3_Group.mat` <- `Materials/Trees/Fristy_Tree_03_Group.mat`
 - `Plants.mat` <- `Materials/Plants/Fristy_Plant_Common.mat`
 - `2_Rock.mat`, `3_Rock.mat`, `4_Rocks.mat` <- соответствующие `Materials/Rocks/Fristy_Rock_*.mat`
+
+## Physics colliders
+
+Fristy prefabs могут приходить без physics collider, особенно деревья (`addColliders: 0` в `.fbx.meta`).
+Не нужно вручную добавлять collider в каждый prefab: `PropPlacementStep` добавляет runtime blocking collider для твердых props после scale/rotation.
+
+Твердые роли: `Tree`, `ForestCoreTrees`, `ForestAccentTrees`, `Rock`, `RocksSmallMedium`, `RocksLarge`, `Cliff`, `Log`, `Bushes`.
+Трава, низкие растения и shore plants остаются без blocking collider.
