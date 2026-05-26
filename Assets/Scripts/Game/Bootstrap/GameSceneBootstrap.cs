@@ -10,6 +10,9 @@ namespace LegendsOfWarAndMagic.Game.Bootstrap
     public sealed class GameSceneBootstrap : MonoBehaviour
     {
         private const float SafeWaterClearance = 1.8f;
+        private const float PlayerHeight = 1.8f;
+        private const float PlayerRadius = 0.4f;
+        private const float PlayerEyeHeight = 1.62f;
 
         private void Start()
         {
@@ -118,10 +121,10 @@ namespace LegendsOfWarAndMagic.Game.Bootstrap
             player.transform.position = spawnPoint;
 
             var characterController = player.AddComponent<CharacterController>();
-            characterController.height = 2f;
-            characterController.radius = 0.45f;
-            characterController.center = new Vector3(0f, 1f, 0f);
-            characterController.stepOffset = 0.45f;
+            characterController.height = PlayerHeight;
+            characterController.radius = PlayerRadius;
+            characterController.center = new Vector3(0f, PlayerHeight * 0.5f, 0f);
+            characterController.stepOffset = 0.4f;
             characterController.slopeLimit = 50f;
 
             player.AddComponent<SimplePlayerController>();
@@ -129,9 +132,9 @@ namespace LegendsOfWarAndMagic.Game.Bootstrap
             var visual = GameObject.CreatePrimitive(PrimitiveType.Capsule);
             visual.name = "Player Capsule";
             visual.transform.SetParent(player.transform, false);
-            visual.transform.localPosition = new Vector3(0f, 1f, 0f);
+            visual.transform.localPosition = new Vector3(0f, PlayerHeight * 0.5f, 0f);
             visual.transform.localRotation = Quaternion.identity;
-            visual.transform.localScale = Vector3.one;
+            visual.transform.localScale = new Vector3(PlayerRadius * 2f, PlayerHeight * 0.5f, PlayerRadius * 2f);
 
             var collider = visual.GetComponent<Collider>();
             if (collider != null)
@@ -155,7 +158,7 @@ namespace LegendsOfWarAndMagic.Game.Bootstrap
             cameraObject.name = "First Person Camera";
             cameraObject.tag = "MainCamera";
             cameraObject.transform.SetParent(player.transform, false);
-            cameraObject.transform.localPosition = new Vector3(0f, 1.72f, 0.08f);
+            cameraObject.transform.localPosition = new Vector3(0f, PlayerEyeHeight, 0.08f);
             cameraObject.transform.localRotation = Quaternion.identity;
 
             var camera = existingCamera != null ? existingCamera : cameraObject.AddComponent<UnityEngine.Camera>();

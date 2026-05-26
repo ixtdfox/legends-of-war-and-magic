@@ -157,7 +157,6 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Runtime
             };
 
             var categories = new List<PropCategoryPlacementSettings>();
-            var enforceDenseForestBatchBudget = densityOption == PropDensityOption.High || treeDensity >= 0.72f;
             if (assetCatalog != null && assetCatalog.HasPropPrefabs())
             {
                 for (var i = 0; i < assetCatalog.PropCategories.Count; i++)
@@ -168,13 +167,14 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Runtime
                         continue;
                     }
 
-                    if (enforceDenseForestBatchBudget && ShouldSkipRuntimePropCategory(category.Role))
+                    var placement = category.CreatePlacementSettings(multiplier, settings.WaterLevel, settings.TerrainHeight);
+                    placement = TuneRuntimePropPlacementIfNeeded(placement, densityOption, treeDensity);
+                    if (placement == null)
                     {
                         continue;
                     }
 
-                    var placement = category.CreatePlacementSettings(multiplier, settings.WaterLevel, settings.TerrainHeight);
-                    categories.Add(TuneTreePlacementIfNeeded(placement, treeDensity));
+                    categories.Add(placement);
                 }
 
                 if (categories.Count > 0)
@@ -202,7 +202,11 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Runtime
                         continue;
                     }
 
-                    categories.Add(TuneTreePlacementIfNeeded(CloneCategory(source, multiplier, settings.WaterLevel), treeDensity));
+                    var placement = TuneRuntimePropPlacementIfNeeded(CloneCategory(source, multiplier, settings.WaterLevel), densityOption, treeDensity);
+                    if (placement != null)
+                    {
+                        categories.Add(placement);
+                    }
                 }
 
                 if (categories.Count > 0)
@@ -216,6 +220,20 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Runtime
                 "Generation will continue without props instead of spawning primitive prototype trees/rocks/grass. " +
                 "Run Tools/Legends of War and Magic/Procedural Generation/Organize Fristy Nature Resources.");
             return categories;
+        }
+
+        private static PropCategoryPlacementSettings TuneRuntimePropPlacementIfNeeded(
+            PropCategoryPlacementSettings source,
+            PropDensityOption densityOption,
+            float treeDensity)
+        {
+            var tuned = TuneTreePlacementIfNeeded(source, treeDensity);
+            if (tuned == null || !ShouldUseDenseForestPropBudget(densityOption, treeDensity))
+            {
+                return tuned;
+            }
+
+            return TuneDenseForestCompanionPlacement(tuned);
         }
 
         private static PropCategoryPlacementSettings CloneCategory(
@@ -360,14 +378,119 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Runtime
             return role == ProceduralPropRole.ForestAccentTrees;
         }
 
-        private static bool ShouldSkipRuntimePropCategory(ProceduralPropRole role)
+        private static bool ShouldUseDenseForestPropBudget(PropDensityOption densityOption, float treeDensity)
         {
-            return role == ProceduralPropRole.GroundGrass ||
-                   role == ProceduralPropRole.GroundPlants ||
-                   role == ProceduralPropRole.ShorePlants ||
-                   role == ProceduralPropRole.RocksSmallMedium ||
-                   role == ProceduralPropRole.RocksLarge ||
-                   role == ProceduralPropRole.Bushes;
+            return densityOption == PropDensityOption.High || treeDensity >= 0.72f;
+        }
+
+        private static PropCategoryPlacementSettings TuneDenseForestCompanionPlacement(PropCategoryPlacementSettings source)
+        {
+            return source.Role switch
+            {
+                ProceduralPropRole.GroundGrass => null,
+                ProceduralPropRole.Bushes => CloneCompanionCategory(source, 0.85f, 1.0f, 80f, 20f, 0.24f, 48f, 1),
+                ProceduralPropRole.GroundPlants => CloneCompanionCategory(source, 0.48f, 1.0f, 60f, 20f, 0.20f, 46f, 1),
+                ProceduralPropRole.ShorePlants => null,
+                ProceduralPropRole.RocksSmallMedium => CloneCompanionCategory(source, 0.44f, 0.95f, 105f, 16f, 0.38f, 66f, 1),
+                ProceduralPropRole.RocksLarge => CloneCompanionCategory(source, 0.42f, 0.95f, 125f, 16f, 0.44f, 70f, 1),
+                ProceduralPropRole.Log => CloneCompanionCategory(source, 0.50f, 1.0f, 80f, 20f, 0.28f, 36f, 1),
+                _ => source
+            };
+        }
+
+        private static PropCategoryPlacementSettings CloneCompanionCategory(
+            PropCategoryPlacementSettings source,
+            float densityScale,
+            float minDistanceScale,
+            float maxDrawDistance,
+            float attemptsMultiplier,
+            float clusterThreshold,
+            float slopeMax,
+            int maxPrefabCount)
+        {
+            var slopeRange = source.AllowedSlopeRange;
+            slopeRange.y = Mathf.Max(slopeRange.y, slopeMax);
+            var prefabs = SelectBudgetCompanionPrefabs(source.Role, source.Prefabs, maxPrefabCount);
+
+            var tuned = new PropCategoryPlacementSettings();
+            tuned.Configure(
+                source.CategoryName,
+                source.Enabled,
+                prefabs,
+                source.DensityPer10kSqm * densityScale,
+                source.MinDistanceBetweenInstances * minDistanceScale,
+                slopeRange,
+                source.AllowedHeightRange,
+                source.RandomScaleRange,
+                source.RandomYRotation,
+                source.WarnIfMissingLodGroup,
+                source.ExpectLodGroup,
+                Mathf.Min(source.MaxDrawDistance, maxDrawDistance),
+                Mathf.Max(source.AttemptsMultiplier, attemptsMultiplier));
+
+            tuned.ConfigureRoleAndBiome(
+                source.Role,
+                source.UseClusterPlacement,
+                Mathf.Min(source.ClusterThreshold, clusterThreshold),
+                source.ClusterNoiseScale,
+                source.ClusterStrength,
+                source.SlopeAffinity,
+                source.ShoreAffinity,
+                source.ForestEdgeAffinity);
+
+            return tuned;
+        }
+
+        private static GameObject[] SelectBudgetCompanionPrefabs(
+            ProceduralPropRole role,
+            GameObject[] prefabs,
+            int maxPrefabCount)
+        {
+            if (prefabs == null || prefabs.Length == 0 || prefabs.Length <= maxPrefabCount)
+            {
+                return prefabs;
+            }
+
+            var selected = new List<GameObject>();
+            AddPreferredBudgetPrefabs(role, prefabs, selected, maxPrefabCount, true);
+            AddPreferredBudgetPrefabs(role, prefabs, selected, maxPrefabCount, false);
+            return selected.ToArray();
+        }
+
+        private static void AddPreferredBudgetPrefabs(
+            ProceduralPropRole role,
+            GameObject[] prefabs,
+            List<GameObject> selected,
+            int maxPrefabCount,
+            bool preferredOnly)
+        {
+            for (var i = 0; i < prefabs.Length && selected.Count < maxPrefabCount; i++)
+            {
+                var prefab = prefabs[i];
+                if (prefab == null || selected.Contains(prefab))
+                {
+                    continue;
+                }
+
+                var preferred = IsPreferredBudgetPrefab(role, prefab.name);
+                if (preferredOnly != preferred)
+                {
+                    continue;
+                }
+
+                selected.Add(prefab);
+            }
+        }
+
+        private static bool IsPreferredBudgetPrefab(ProceduralPropRole role, string prefabName)
+        {
+            var key = string.IsNullOrWhiteSpace(prefabName) ? string.Empty : prefabName.ToLowerInvariant();
+            return role switch
+            {
+                ProceduralPropRole.Bushes => key.Contains("bush") && !key.Contains("vegetation_01"),
+                ProceduralPropRole.RocksLarge => !key.Contains("boulder_03") && !key.Contains("vegetation"),
+                _ => true
+            };
         }
 
         private static bool ContainsPrototypePrefabs(PropCategoryPlacementSettings source)

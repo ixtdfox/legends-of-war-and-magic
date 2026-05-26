@@ -11,6 +11,9 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
     /// </summary>
     public sealed class PropPlacementStep : IGenerationStep
     {
+        private const float MinTreeHeightMeters = 8f;
+        private const float MaxTreeHeightMeters = 26f;
+
         public void Execute(GenerationContext context)
         {
             if (!context.Settings.EnablePropPlacement || context.Settings.PropCategories == null || context.Settings.PropCategories.Count == 0)
@@ -80,12 +83,16 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
             var categorySpacing = new PointSpacingHash2D(category.MinDistanceBetweenInstances);
             var minDistanceSqr = category.MinDistanceBetweenInstances * category.MinDistanceBetweenInstances;
             var maxAttempts = Mathf.Max(targetCount, Mathf.CeilToInt(targetCount * category.AttemptsMultiplier * ResolveAttemptBoost(category.Role)));
+            var forestAnchors = ShouldUseForestAnchoredSampling(category.Role)
+                ? CollectForestAnchors(propsRoot)
+                : null;
             var accepted = 0;
 
             for (var attempt = 0; attempt < maxAttempts && accepted < targetCount; attempt++)
             {
-                var x = Range(random, minX, maxX);
-                var z = Range(random, minZ, maxZ);
+                var candidate = ResolveCandidatePoint(random, minX, maxX, minZ, maxZ, category.Role, forestAnchors);
+                var x = candidate.x;
+                var z = candidate.y;
 
                 if (!TrySamplePoint(terrain, x, z, out var point, out var normal))
                 {
@@ -138,6 +145,11 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                 var prefabLocalBounds = default(Bounds);
                 var canRenderInstanced = instancedRenderer != null &&
                                          instancedRenderer.TryGetPrefabLocalBounds(prefab, category.Role, out prefabLocalBounds);
+                if (canRenderInstanced)
+                {
+                    uniformScale = ResolveUniformScale(category.Role, prefabLocalBounds, uniformScale, random);
+                }
+
                 var instance = canRenderInstanced
                     ? CreateLightweightInstance(prefab, categoryRoot, spawnPoint, rotationY, uniformScale, accepted + 1)
                     : CreatePrefabInstance(prefab, categoryRoot, spawnPoint, rotationY, uniformScale, accepted + 1);
@@ -290,6 +302,83 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
             };
         }
 
+        private static Vector2 ResolveCandidatePoint(
+            System.Random random,
+            float minX,
+            float maxX,
+            float minZ,
+            float maxZ,
+            ProceduralPropRole role,
+            IReadOnlyList<Vector3> forestAnchors)
+        {
+            if (forestAnchors != null && forestAnchors.Count > 0 && Next01(random) < 0.88f)
+            {
+                var anchor = forestAnchors[random.Next(0, forestAnchors.Count)];
+                var angle = Next01(random) * Mathf.PI * 2f;
+                var radius = Range(random, ResolveAnchorMinRadius(role), ResolveAnchorMaxRadius(role));
+                var anchored = new Vector2(
+                    anchor.x + Mathf.Cos(angle) * radius,
+                    anchor.z + Mathf.Sin(angle) * radius);
+
+                if (anchored.x >= minX && anchored.x <= maxX && anchored.y >= minZ && anchored.y <= maxZ)
+                {
+                    return anchored;
+                }
+            }
+
+            return new Vector2(Range(random, minX, maxX), Range(random, minZ, maxZ));
+        }
+
+        private static bool ShouldUseForestAnchoredSampling(ProceduralPropRole role)
+        {
+            return role == ProceduralPropRole.Bushes ||
+                   role == ProceduralPropRole.GroundPlants ||
+                   role == ProceduralPropRole.Log;
+        }
+
+        private static float ResolveAnchorMinRadius(ProceduralPropRole role)
+        {
+            return role switch
+            {
+                ProceduralPropRole.GroundPlants => 1.3f,
+                ProceduralPropRole.Log => 2.2f,
+                _ => 1.8f
+            };
+        }
+
+        private static float ResolveAnchorMaxRadius(ProceduralPropRole role)
+        {
+            return role switch
+            {
+                ProceduralPropRole.GroundPlants => 6.8f,
+                ProceduralPropRole.Log => 8.5f,
+                _ => 8.0f
+            };
+        }
+
+        private static IReadOnlyList<Vector3> CollectForestAnchors(Transform propsRoot)
+        {
+            var anchors = new List<Vector3>();
+            CollectCategoryAnchors(propsRoot, "ForestCoreTrees", anchors);
+            CollectCategoryAnchors(propsRoot, "Tree", anchors);
+            CollectCategoryAnchors(propsRoot, "ForestAccentTrees", anchors);
+            return anchors;
+        }
+
+        private static void CollectCategoryAnchors(Transform propsRoot, string categoryName, List<Vector3> anchors)
+        {
+            var categoryRoot = propsRoot != null ? propsRoot.Find(categoryName) : null;
+            if (categoryRoot == null)
+            {
+                return;
+            }
+
+            for (var i = 0; i < categoryRoot.childCount; i++)
+            {
+                anchors.Add(categoryRoot.GetChild(i).position);
+            }
+        }
+
         private static float EvaluateBiomeScore(
             GenerationContext context,
             PropCategoryPlacementSettings category,
@@ -421,6 +510,27 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
         private static float Next01(System.Random random)
         {
             return (float)random.NextDouble();
+        }
+
+        private static float ResolveUniformScale(
+            ProceduralPropRole role,
+            Bounds prefabLocalBounds,
+            float fallbackScale,
+            System.Random random)
+        {
+            if (!IsTreeRole(role) || prefabLocalBounds.size.y <= 0.01f)
+            {
+                return fallbackScale;
+            }
+
+            var targetHeight = ResolveTreeTargetHeight(random);
+            return Mathf.Clamp(targetHeight / prefabLocalBounds.size.y, 0.01f, 100f);
+        }
+
+        private static float ResolveTreeTargetHeight(System.Random random)
+        {
+            var biased01 = Mathf.Max(Next01(random), Mathf.Max(Next01(random), Next01(random)));
+            return Mathf.Lerp(MinTreeHeightMeters, MaxTreeHeightMeters, biased01);
         }
 
         private static float ResolveVerticalOffset(ProceduralPropRole role, System.Random random)
@@ -793,14 +903,14 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                 ProceduralPropRole.RocksLarge => 0.82f,
                 ProceduralPropRole.Rock => 0.78f,
                 ProceduralPropRole.RocksSmallMedium => 0.76f,
-                ProceduralPropRole.ForestCoreTrees => 0.14f,
-                ProceduralPropRole.Tree => 0.14f,
-                ProceduralPropRole.ForestAccentTrees => 0.13f,
-                ProceduralPropRole.Bushes => 0.48f,
+                ProceduralPropRole.ForestCoreTrees => 0.05f,
+                ProceduralPropRole.Tree => 0.05f,
+                ProceduralPropRole.ForestAccentTrees => 0.045f,
+                ProceduralPropRole.Bushes => 0.36f,
                 ProceduralPropRole.Log => 0.46f,
                 ProceduralPropRole.GroundGrass => 0.32f,
-                ProceduralPropRole.GroundPlants => 0.36f,
-                ProceduralPropRole.ShorePlants => 0.36f,
+                ProceduralPropRole.GroundPlants => 0.28f,
+                ProceduralPropRole.ShorePlants => 0.28f,
                 _ => 0.42f
             };
         }
@@ -813,14 +923,14 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                 ProceduralPropRole.RocksLarge => 1.1f,
                 ProceduralPropRole.Rock => 0.9f,
                 ProceduralPropRole.RocksSmallMedium => 0.9f,
-                ProceduralPropRole.ForestCoreTrees => 0.35f,
-                ProceduralPropRole.Tree => 0.35f,
-                ProceduralPropRole.ForestAccentTrees => 0.30f,
-                ProceduralPropRole.Bushes => 0.45f,
+                ProceduralPropRole.ForestCoreTrees => 0.15f,
+                ProceduralPropRole.Tree => 0.15f,
+                ProceduralPropRole.ForestAccentTrees => 0.12f,
+                ProceduralPropRole.Bushes => 0.25f,
                 ProceduralPropRole.Log => 0.35f,
                 ProceduralPropRole.GroundGrass => 0.1f,
-                ProceduralPropRole.GroundPlants => 0.18f,
-                ProceduralPropRole.ShorePlants => 0.18f,
+                ProceduralPropRole.GroundPlants => 0.1f,
+                ProceduralPropRole.ShorePlants => 0.1f,
                 _ => 0.35f
             };
         }
@@ -833,14 +943,14 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                 ProceduralPropRole.RocksLarge => 2.4f,
                 ProceduralPropRole.Rock => 1.3f,
                 ProceduralPropRole.RocksSmallMedium => 1.0f,
-                ProceduralPropRole.ForestCoreTrees => 0.95f,
-                ProceduralPropRole.Tree => 0.95f,
-                ProceduralPropRole.ForestAccentTrees => 0.85f,
-                ProceduralPropRole.Bushes => 0.8f,
+                ProceduralPropRole.ForestCoreTrees => 0.55f,
+                ProceduralPropRole.Tree => 0.55f,
+                ProceduralPropRole.ForestAccentTrees => 0.48f,
+                ProceduralPropRole.Bushes => 0.45f,
                 ProceduralPropRole.Log => 1.1f,
                 ProceduralPropRole.GroundGrass => 0.25f,
-                ProceduralPropRole.GroundPlants => 0.35f,
-                ProceduralPropRole.ShorePlants => 0.35f,
+                ProceduralPropRole.GroundPlants => 0.25f,
+                ProceduralPropRole.ShorePlants => 0.25f,
                 _ => 0.6f
             };
         }
@@ -853,14 +963,14 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                 ProceduralPropRole.RocksLarge => 9f,
                 ProceduralPropRole.Rock => 6.5f,
                 ProceduralPropRole.RocksSmallMedium => 5.2f,
-                ProceduralPropRole.ForestCoreTrees => 2.4f,
-                ProceduralPropRole.Tree => 2.4f,
-                ProceduralPropRole.ForestAccentTrees => 2.0f,
-                ProceduralPropRole.Bushes => 3.2f,
+                ProceduralPropRole.ForestCoreTrees => 1.25f,
+                ProceduralPropRole.Tree => 1.25f,
+                ProceduralPropRole.ForestAccentTrees => 1.1f,
+                ProceduralPropRole.Bushes => 1.6f,
                 ProceduralPropRole.Log => 4.5f,
                 ProceduralPropRole.GroundGrass => 1.1f,
-                ProceduralPropRole.GroundPlants => 1.6f,
-                ProceduralPropRole.ShorePlants => 1.6f,
+                ProceduralPropRole.GroundPlants => 0.9f,
+                ProceduralPropRole.ShorePlants => 0.9f,
                 _ => 2.4f
             };
         }
