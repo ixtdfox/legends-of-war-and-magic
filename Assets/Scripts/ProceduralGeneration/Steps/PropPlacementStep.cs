@@ -27,6 +27,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
 
             var propsRoot = new GameObject("GeneratedProps").transform;
             propsRoot.SetParent(context.GeneratedRoot, false);
+            var instancedRenderer = propsRoot.gameObject.AddComponent<GeneratedInstancedPropRenderer>();
 
             var placementQueue = BuildPlacementQueue(context.Settings.PropCategories);
             var footprintGrid = new FootprintGrid2D(8f);
@@ -34,7 +35,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
             {
                 var workItem = placementQueue[i];
                 var random = new System.Random(unchecked(context.Seed * 486187739 + 97 + workItem.OriginalIndex * 104729));
-                PlaceCategory(context, workItem.Category, terrain, propsRoot, footprintGrid, random);
+                PlaceCategory(context, workItem.Category, terrain, propsRoot, instancedRenderer, footprintGrid, random);
             }
         }
 
@@ -43,6 +44,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
             PropCategoryPlacementSettings category,
             Terrain terrain,
             Transform propsRoot,
+            GeneratedInstancedPropRenderer instancedRenderer,
             FootprintGrid2D footprintGrid,
             System.Random random)
         {
@@ -132,13 +134,17 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                 var rotationY = category.RandomYRotation ? Range(random, 0f, 360f) : 0f;
                 var spawnPoint = point;
                 spawnPoint.y += ResolveVerticalOffset(category.Role, random);
-                var instance = Object.Instantiate(prefab, spawnPoint, Quaternion.identity, categoryRoot);
-                instance.name = $"{prefab.name}_{accepted + 1:D4}";
-                PrepareSpawnedInstance(instance);
-                instance.transform.rotation = Quaternion.Euler(0f, rotationY, 0f);
-                instance.transform.localScale *= uniformScale;
 
-                var footprint = ResolveFootprint(instance, category);
+                var prefabLocalBounds = default(Bounds);
+                var canRenderInstanced = instancedRenderer != null &&
+                                         instancedRenderer.TryGetPrefabLocalBounds(prefab, category.Role, out prefabLocalBounds);
+                var instance = canRenderInstanced
+                    ? CreateLightweightInstance(prefab, categoryRoot, spawnPoint, rotationY, uniformScale, accepted + 1)
+                    : CreatePrefabInstance(prefab, categoryRoot, spawnPoint, rotationY, uniformScale, accepted + 1);
+
+                var footprint = canRenderInstanced
+                    ? ResolveFootprint(instance.transform, category, prefabLocalBounds)
+                    : ResolveFootprint(instance, category);
                 if (footprintGrid.IsOverlapping(footprint.Center, footprint.Radius))
                 {
                     SafeDestroy(instance);
@@ -146,9 +152,17 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                     continue;
                 }
 
-                ValidateLodSetup(category, prefab, instance, lodWarnedPrefabs);
-                EnsureBlockingCollision(instance, category);
-                ApplyDrawDistance(instance, category.MaxDrawDistance);
+                ValidateLodSetup(category, prefab, lodWarnedPrefabs);
+                Bounds? knownLocalBounds = canRenderInstanced ? prefabLocalBounds : (Bounds?)null;
+                EnsureBlockingCollision(instance, category, knownLocalBounds);
+                if (canRenderInstanced)
+                {
+                    instancedRenderer.RegisterPrefabInstance(prefab, category.Role, instance.transform, category.MaxDrawDistance);
+                }
+                else
+                {
+                    ApplyDrawDistance(instance, category.MaxDrawDistance);
+                }
 
                 categorySpacing.Add(point2D);
                 footprintGrid.Add(footprint.Center, footprint.Radius);
@@ -223,6 +237,38 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                 ProceduralPropRole.GroundGrass => 9,
                 _ => 10
             };
+        }
+
+        private static GameObject CreateLightweightInstance(
+            GameObject prefab,
+            Transform parent,
+            Vector3 position,
+            float rotationY,
+            float uniformScale,
+            int instanceIndex)
+        {
+            var instance = new GameObject($"{prefab.name}_{instanceIndex:D4}");
+            instance.transform.SetParent(parent, false);
+            instance.transform.position = position;
+            instance.transform.rotation = Quaternion.Euler(0f, rotationY, 0f);
+            instance.transform.localScale = prefab.transform.localScale * uniformScale;
+            return instance;
+        }
+
+        private static GameObject CreatePrefabInstance(
+            GameObject prefab,
+            Transform parent,
+            Vector3 position,
+            float rotationY,
+            float uniformScale,
+            int instanceIndex)
+        {
+            var instance = Object.Instantiate(prefab, position, Quaternion.identity, parent);
+            instance.name = $"{prefab.name}_{instanceIndex:D4}";
+            PrepareSpawnedInstance(instance);
+            instance.transform.rotation = Quaternion.Euler(0f, rotationY, 0f);
+            instance.transform.localScale *= uniformScale;
+            return instance;
         }
 
         private static float ResolveAttemptBoost(ProceduralPropRole role)
@@ -422,7 +468,6 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
         private static void ValidateLodSetup(
             PropCategoryPlacementSettings category,
             GameObject prefab,
-            GameObject instance,
             HashSet<int> warnedPrefabs)
         {
             if (!category.WarnIfMissingLodGroup && !category.ExpectLodGroup)
@@ -430,7 +475,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                 return;
             }
 
-            if (instance.GetComponentInChildren<LODGroup>() != null)
+            if (prefab.GetComponentInChildren<LODGroup>(true) != null)
             {
                 return;
             }
@@ -463,7 +508,10 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
             cullingGroup.Initialize(maxDrawDistance);
         }
 
-        private static void EnsureBlockingCollision(GameObject instance, PropCategoryPlacementSettings category)
+        private static void EnsureBlockingCollision(
+            GameObject instance,
+            PropCategoryPlacementSettings category,
+            Bounds? knownLocalBounds = null)
         {
             if (!ShouldBlockPlayer(category.Role))
             {
@@ -475,7 +523,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                 return;
             }
 
-            var bounds = CalculateLocalRendererBounds(instance);
+            var bounds = knownLocalBounds ?? CalculateLocalRendererBounds(instance);
             if (!bounds.HasValue)
             {
                 return;
@@ -622,6 +670,25 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                 var rendererRadius = Mathf.Max(bounds.Value.extents.x, bounds.Value.extents.z);
                 radius = Mathf.Max(radius, rendererRadius * ResolveRendererFootprintFactor(category.Role));
             }
+
+            radius = Mathf.Clamp(
+                radius + ResolveFootprintPadding(category.Role),
+                ResolveMinFootprintRadius(category.Role),
+                ResolveMaxFootprintRadius(category.Role));
+
+            return new Footprint(center, radius);
+        }
+
+        private static Footprint ResolveFootprint(
+            Transform instanceTransform,
+            PropCategoryPlacementSettings category,
+            Bounds localBounds)
+        {
+            var bounds = GeneratedInstancedPropRenderer.TransformBounds(localBounds, instanceTransform.localToWorldMatrix);
+            var center = new Vector2(bounds.center.x, bounds.center.z);
+            var radius = category.MinDistanceBetweenInstances * ResolveFootprintMinDistanceFactor(category.Role);
+            var rendererRadius = Mathf.Max(bounds.extents.x, bounds.extents.z);
+            radius = Mathf.Max(radius, rendererRadius * ResolveRendererFootprintFactor(category.Role));
 
             radius = Mathf.Clamp(
                 radius + ResolveFootprintPadding(category.Role),

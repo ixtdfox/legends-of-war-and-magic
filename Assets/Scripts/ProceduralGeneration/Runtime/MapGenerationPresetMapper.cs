@@ -7,6 +7,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Runtime
     public static class MapGenerationPresetMapper
     {
         private const string DefaultSettingsResourcePath = "ProceduralGeneration/DefaultProceduralLocationSettings";
+        private const float TreeDensityAmplifier = 2f;
 
         public sealed class Result
         {
@@ -56,7 +57,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Runtime
                 landPreset.FalloffStrength);
             settings.ConfigureWater(true, waterPreset.Level, sizePreset.WaterPadding, waterPreset.Color);
             settings.ConfigureProps(true, BuildPropCategories(settings, safeRequest.PropDensity, safeRequest.TreeDensity, settings.AssetCatalog));
-            settings.ConfigureTerrainDetails(true, ResolveDetailDensity(safeRequest.PropDensity), sizePreset.DetailResolution, 16);
+            settings.ConfigureTerrainDetails(true, ResolveDetailDensity(safeRequest.PropDensity), sizePreset.DetailResolution, 64);
 
             return new Result(settings, seed, safeRequest.BuildSummary(seed));
         }
@@ -156,12 +157,18 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Runtime
             };
 
             var categories = new List<PropCategoryPlacementSettings>();
+            var enforceDenseForestBatchBudget = densityOption == PropDensityOption.High || treeDensity >= 0.72f;
             if (assetCatalog != null && assetCatalog.HasPropPrefabs())
             {
                 for (var i = 0; i < assetCatalog.PropCategories.Count; i++)
                 {
                     var category = assetCatalog.PropCategories[i];
                     if (category == null || !category.HasPrefabs)
+                    {
+                        continue;
+                    }
+
+                    if (enforceDenseForestBatchBudget && ShouldSkipRuntimePropCategory(category.Role))
                     {
                         continue;
                     }
@@ -266,10 +273,10 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Runtime
             }
 
             var normalized = Mathf.Clamp01(treeDensity);
-            var densityMultiplier = ResolveTreeDensityMultiplier(normalized);
+            var densityMultiplier = ResolveTreeDensityMultiplier(normalized) * TreeDensityAmplifier;
             var minDistance = Mathf.Lerp(
                 source.MinDistanceBetweenInstances * 1.28f,
-                Mathf.Max(2.05f, source.MinDistanceBetweenInstances * 0.38f),
+                Mathf.Max(1.35f, source.MinDistanceBetweenInstances * 0.28f),
                 normalized);
             var slopeRange = source.AllowedSlopeRange;
             slopeRange.y = Mathf.Lerp(Mathf.Min(slopeRange.y, 28f), Mathf.Max(slopeRange.y, 42f), normalized);
@@ -291,7 +298,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Runtime
                 source.WarnIfMissingLodGroup,
                 source.ExpectLodGroup,
                 Mathf.Lerp(source.MaxDrawDistance, 170f, normalized),
-                Mathf.Lerp(8f, 15f, normalized));
+                Mathf.Lerp(8f, 18f, normalized));
 
             tuned.ConfigureRoleAndBiome(
                 source.Role,
@@ -311,7 +318,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Runtime
             float treeDensity)
         {
             var normalized = Mathf.Clamp01(treeDensity);
-            var densityMultiplier = Mathf.Lerp(0.20f, 1.8f, Mathf.SmoothStep(0f, 1f, normalized));
+            var densityMultiplier = Mathf.Lerp(0.35f, 3.6f, Mathf.SmoothStep(0f, 1f, normalized));
             var scaleRange = new Vector2(
                 Mathf.Lerp(Mathf.Max(0.78f, source.RandomScaleRange.x), 0.76f, normalized),
                 Mathf.Lerp(Mathf.Max(1.12f, source.RandomScaleRange.y), 1.32f, normalized));
@@ -321,7 +328,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Runtime
                 source.Enabled,
                 source.Prefabs,
                 source.DensityPer10kSqm * densityMultiplier,
-                Mathf.Lerp(source.MinDistanceBetweenInstances * 1.25f, Mathf.Max(4.0f, source.MinDistanceBetweenInstances * 0.58f), normalized),
+                Mathf.Lerp(source.MinDistanceBetweenInstances * 1.25f, Mathf.Max(2.7f, source.MinDistanceBetweenInstances * 0.42f), normalized),
                 source.AllowedSlopeRange,
                 source.AllowedHeightRange,
                 scaleRange,
@@ -329,7 +336,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Runtime
                 source.WarnIfMissingLodGroup,
                 source.ExpectLodGroup,
                 Mathf.Lerp(source.MaxDrawDistance, 170f, normalized),
-                Mathf.Lerp(9f, 14f, normalized));
+                Mathf.Lerp(9f, 18f, normalized));
 
             tuned.ConfigureRoleAndBiome(
                 source.Role,
@@ -351,6 +358,16 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Runtime
         private static bool IsAccentTreeRole(ProceduralPropRole role)
         {
             return role == ProceduralPropRole.ForestAccentTrees;
+        }
+
+        private static bool ShouldSkipRuntimePropCategory(ProceduralPropRole role)
+        {
+            return role == ProceduralPropRole.GroundGrass ||
+                   role == ProceduralPropRole.GroundPlants ||
+                   role == ProceduralPropRole.ShorePlants ||
+                   role == ProceduralPropRole.RocksSmallMedium ||
+                   role == ProceduralPropRole.RocksLarge ||
+                   role == ProceduralPropRole.Bushes;
         }
 
         private static bool ContainsPrototypePrefabs(PropCategoryPlacementSettings source)
