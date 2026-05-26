@@ -313,6 +313,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Config
         public int TerrainDetailResolution => terrainDetails.DetailResolution;
         public int TerrainDetailResolutionPerPatch => terrainDetails.DetailResolutionPerPatch;
         public ForestLodSettings ForestLodSettings => forestRendering.ResolveLodSettings();
+        public GpuGrassSettings GpuGrassSettings => forestRendering.ResolveGpuGrassSettings();
 
         public void ConfigureAssetCatalog(ProceduralEnvironmentAssetCatalog catalog)
         {

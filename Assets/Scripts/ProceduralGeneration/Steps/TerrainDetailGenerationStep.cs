@@ -41,8 +41,11 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
             }
 
             terrainData.detailPrototypes = prototypes;
-            terrain.detailObjectDistance = Mathf.Max(terrain.detailObjectDistance, 180f);
-            terrain.detailObjectDensity = Mathf.Max(terrain.detailObjectDensity, 1f);
+            var gpuGrassSettings = settings.GpuGrassSettings;
+            terrain.detailObjectDistance = gpuGrassSettings.Enabled
+                ? gpuGrassSettings.TerrainDetailFallbackDistance
+                : Mathf.Max(terrain.detailObjectDistance, 180f);
+            terrain.detailObjectDensity = Mathf.Max(terrain.detailObjectDensity, gpuGrassSettings.Enabled ? 0.75f : 1f);
 
             for (var layer = 0; layer < detailDefinitions.Count; layer++)
             {
@@ -61,6 +64,11 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                 {
                     var detail = catalog.TerrainDetails[i];
                     if (detail == null || !detail.HasPrototype)
+                    {
+                        continue;
+                    }
+
+                    if (settings.GpuGrassSettings.Enabled && detail.Role == TerrainDetailRole.Grass)
                     {
                         continue;
                     }

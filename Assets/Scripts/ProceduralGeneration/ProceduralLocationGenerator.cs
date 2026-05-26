@@ -241,6 +241,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration
                     {
                         new TerrainGenerationStep(),
                         new TerrainDetailGenerationStep(),
+                        new GpuGrassGenerationStep(),
                         new WaterGenerationStep(),
                         new CompositeGenerationStep(
                             "Environment Props",

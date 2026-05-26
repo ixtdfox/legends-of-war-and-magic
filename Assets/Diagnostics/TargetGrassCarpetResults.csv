@@ -1,0 +1,3 @@
+source,display_name,count,triangles_per_instance,total_triangles,total_vertices,lod,shadows,notes
+"GPU Grass","GPU Grass High",9249,540,4994460,4994460,"GPU Grass High","Off","Chunked GPU instanced grass, estimated batches 65"
+"GPU Grass","GPU Grass Low",52489,60,3149340,3149340,"GPU Grass Low","Off","Chunked GPU instanced grass, estimated batches 65"

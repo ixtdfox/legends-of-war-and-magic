@@ -85,6 +85,23 @@ namespace LegendsOfWarAndMagic.Diagnostics
                 }
             }
 
+            var grassRenderers = Object.FindObjectsByType<GeneratedGpuGrassRenderer>(FindObjectsInactive.Exclude, FindObjectsSortMode.None);
+            for (var i = 0; i < grassRenderers.Length; i++)
+            {
+                var grass = grassRenderers[i];
+                if (grass == null || !grass.isActiveAndEnabled)
+                {
+                    continue;
+                }
+
+                var diagnostics = new List<GeneratedGpuGrassRenderer.GpuGrassDiagnostic>();
+                grass.AddDiagnostics(camera, diagnostics);
+                for (var diagnosticIndex = 0; diagnosticIndex < diagnostics.Count; diagnosticIndex++)
+                {
+                    snapshot.AddGpuGrass(diagnostics[diagnosticIndex]);
+                }
+            }
+
             snapshot.Sort();
             return snapshot;
         }
@@ -99,6 +116,7 @@ namespace LegendsOfWarAndMagic.Diagnostics
             sb.AppendLine($"- Frustum only: {snapshot.FrustumOnly}");
             sb.AppendLine($"- Visible renderer records: {snapshot.RendererRecords.Count}");
             sb.AppendLine($"- Instanced draw groups: {snapshot.InstancedRecords.Count}");
+            sb.AppendLine($"- GPU grass records: {snapshot.GpuGrassRecords.Count}");
             sb.AppendLine($"- Visible triangles: {snapshot.VisibleTriangles:N0}");
             sb.AppendLine($"- Visible vertices: {snapshot.VisibleVertices:N0}");
             sb.AppendLine($"- Shadow casting records: {snapshot.ShadowCastingRecordCount:N0}");
@@ -129,6 +147,17 @@ namespace LegendsOfWarAndMagic.Diagnostics
                 var record = instancedRecords[i];
                 sb.AppendLine(
                     $"| {Escape(record.SourcePrefabs)} | {Escape(record.MeshName)} | {Escape(record.MaterialName)} | {record.LodIndex} | {record.VisibleInstances} | {record.TrianglesPerInstance:N0} | {record.VisibleTriangles:N0} | {record.ShadowCastingMode} |");
+            }
+
+            sb.AppendLine();
+            sb.AppendLine("## GPU Grass");
+            sb.AppendLine();
+            sb.AppendLine("| LOD | Visible clumps | Tris per clump | Verts per clump | Visible tris | Visible verts | Estimated batches |");
+            sb.AppendLine("|---|---:|---:|---:|---:|---:|---:|");
+            for (var i = 0; i < snapshot.GpuGrassRecords.Count; i++)
+            {
+                var record = snapshot.GpuGrassRecords[i];
+                sb.AppendLine($"| {Escape(record.LodName)} | {record.VisibleClumps:N0} | {record.TrianglesPerClump:N0} | {record.VerticesPerClump:N0} | {record.VisibleTriangles:N0} | {record.VisibleVertices:N0} | {record.EstimatedBatches:N0} |");
             }
 
             return sb.ToString();
@@ -305,6 +334,7 @@ namespace LegendsOfWarAndMagic.Diagnostics
         public bool FrustumOnly { get; }
         public List<ForestRendererRecord> RendererRecords { get; } = new();
         public List<GeneratedInstancedPropRenderer.GeneratedInstancedPropDiagnostic> InstancedRecords { get; } = new();
+        public List<GeneratedGpuGrassRenderer.GpuGrassDiagnostic> GpuGrassRecords { get; } = new();
         public List<ForestGeometryGroup> Groups { get; } = new();
         public long VisibleTriangles { get; private set; }
         public long VisibleVertices { get; private set; }
@@ -353,6 +383,23 @@ namespace LegendsOfWarAndMagic.Diagnostics
                 record.ShadowCastingMode.ToString(),
                 record.UsesDistanceLod ? "Generated instanced LOD" : "Generated instanced");
             group.SetCount(record.VisibleInstances);
+        }
+
+        public void AddGpuGrass(GeneratedGpuGrassRenderer.GpuGrassDiagnostic record)
+        {
+            GpuGrassRecords.Add(record);
+            VisibleTriangles += record.VisibleTriangles;
+            VisibleVertices += record.VisibleVertices;
+
+            var key = $"GpuGrass|{record.LodName}";
+            var group = GetOrCreateGroup(key, "GPU Grass", record.LodName, record.TrianglesPerClump, record.VerticesPerClump);
+            group.Add(
+                record.VisibleTriangles,
+                record.VisibleVertices,
+                record.LodName,
+                "Off",
+                $"Chunked GPU instanced grass, estimated batches {record.EstimatedBatches}");
+            group.SetCount(record.VisibleClumps);
         }
 
         public void Sort()

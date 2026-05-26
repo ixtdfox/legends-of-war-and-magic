@@ -12,6 +12,137 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Config
     }
 
     [Serializable]
+    public sealed class GpuGrassSettings
+    {
+        [SerializeField] private bool enabled = true;
+
+        [Min(0f)]
+        [SerializeField] private float drawDistance = 92f;
+
+        [Min(0f)]
+        [SerializeField] private float highDetailDistance = 34f;
+
+        [Min(4f)]
+        [SerializeField] private float chunkSize = 18f;
+
+        [Min(0.35f)]
+        [SerializeField] private float placementSpacing = 1.18f;
+
+        [Min(0)]
+        [SerializeField] private int maxVisibleClumps = 28000;
+
+        [Range(0f, 2f)]
+        [SerializeField] private float densityScale = 1f;
+
+        [Range(0f, 1f)]
+        [SerializeField] private float terrainDetailDensityScale = 0.38f;
+
+        [Min(0f)]
+        [SerializeField] private float terrainDetailFallbackDistance = 55f;
+
+        [Range(0f, 2f)]
+        [SerializeField] private float windStrength = 0.23f;
+
+        [Range(0f, 8f)]
+        [SerializeField] private float windSpeed = 1.25f;
+
+        [Range(0.01f, 1f)]
+        [SerializeField] private float windScale = 0.13f;
+
+        [SerializeField] private bool receiveShadows = true;
+
+        public bool Enabled => enabled;
+        public float DrawDistance => Mathf.Max(0f, drawDistance);
+        public float HighDetailDistance => Mathf.Clamp(highDetailDistance, 0f, DrawDistance);
+        public float ChunkSize => Mathf.Max(4f, chunkSize);
+        public float PlacementSpacing => Mathf.Max(0.35f, placementSpacing);
+        public int MaxVisibleClumps => Mathf.Max(0, maxVisibleClumps);
+        public float DensityScale => Mathf.Clamp(densityScale, 0f, 2f);
+        public float TerrainDetailDensityScale => Mathf.Clamp01(terrainDetailDensityScale);
+        public float TerrainDetailFallbackDistance => Mathf.Max(0f, terrainDetailFallbackDistance);
+        public float WindStrength => Mathf.Clamp(windStrength, 0f, 2f);
+        public float WindSpeed => Mathf.Clamp(windSpeed, 0f, 8f);
+        public float WindScale => Mathf.Clamp(windScale, 0.01f, 1f);
+        public bool ReceiveShadows => receiveShadows;
+
+        public static GpuGrassSettings CreatePreset(ForestQualityLevel preset)
+        {
+            var settings = new GpuGrassSettings();
+            settings.ApplyPreset(preset);
+            return settings;
+        }
+
+        public GpuGrassSettings Clone()
+        {
+            return new GpuGrassSettings
+            {
+                enabled = enabled,
+                drawDistance = drawDistance,
+                highDetailDistance = highDetailDistance,
+                chunkSize = chunkSize,
+                placementSpacing = placementSpacing,
+                maxVisibleClumps = maxVisibleClumps,
+                densityScale = densityScale,
+                terrainDetailDensityScale = terrainDetailDensityScale,
+                terrainDetailFallbackDistance = terrainDetailFallbackDistance,
+                windStrength = windStrength,
+                windSpeed = windSpeed,
+                windScale = windScale,
+                receiveShadows = receiveShadows
+            };
+        }
+
+        public void ApplyPreset(ForestQualityLevel preset)
+        {
+            switch (preset)
+            {
+                case ForestQualityLevel.Low:
+                    Configure(true, 60f, 16f, 22f, 0.85f, 20000, 0.82f, 0.2f, 35f, 0.16f, 1.0f, 0.11f, false);
+                    break;
+                case ForestQualityLevel.Medium:
+                    Configure(true, 90f, 26f, 18f, 0.58f, 48000, 1.08f, 0.3f, 45f, 0.2f, 1.15f, 0.12f, true);
+                    break;
+                case ForestQualityLevel.Ultra:
+                    Configure(true, 135f, 42f, 16f, 0.38f, 120000, 1.4f, 0.48f, 70f, 0.28f, 1.45f, 0.14f, true);
+                    break;
+                default:
+                    Configure(true, 120f, 34f, 16f, 0.46f, 80000, 1.35f, 0.38f, 60f, 0.23f, 1.25f, 0.13f, true);
+                    break;
+            }
+        }
+
+        public void Configure(
+            bool isEnabled,
+            float distance,
+            float highDistance,
+            float chunk,
+            float spacing,
+            int visibleBudget,
+            float density,
+            float terrainDetailScale,
+            float detailFallbackDistance,
+            float wind,
+            float speed,
+            float scale,
+            bool shadows)
+        {
+            enabled = isEnabled;
+            drawDistance = Mathf.Max(0f, distance);
+            highDetailDistance = Mathf.Clamp(highDistance, 0f, drawDistance);
+            chunkSize = Mathf.Max(4f, chunk);
+            placementSpacing = Mathf.Max(0.35f, spacing);
+            maxVisibleClumps = Mathf.Max(0, visibleBudget);
+            densityScale = Mathf.Clamp(density, 0f, 2f);
+            terrainDetailDensityScale = Mathf.Clamp01(terrainDetailScale);
+            terrainDetailFallbackDistance = Mathf.Max(0f, detailFallbackDistance);
+            windStrength = Mathf.Clamp(wind, 0f, 2f);
+            windSpeed = Mathf.Clamp(speed, 0f, 8f);
+            windScale = Mathf.Clamp(scale, 0.01f, 1f);
+            receiveShadows = shadows;
+        }
+    }
+
+    [Serializable]
     public sealed class ForestLodSettings
     {
         [Header("Distance Bands")]
@@ -186,15 +317,24 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Config
         [SerializeField] private ForestQualityLevel qualityPreset = ForestQualityLevel.High;
         [SerializeField] private bool usePresetValues = true;
         [SerializeField] private ForestLodSettings customLodSettings = ForestLodSettings.CreatePreset(ForestQualityLevel.High);
+        [SerializeField] private GpuGrassSettings gpuGrassSettings = GpuGrassSettings.CreatePreset(ForestQualityLevel.High);
 
         public ForestQualityLevel QualityPreset => qualityPreset;
         public bool UsePresetValues => usePresetValues;
+        public GpuGrassSettings GpuGrassSettings => ResolveGpuGrassSettings();
 
         public ForestLodSettings ResolveLodSettings()
         {
             return usePresetValues || customLodSettings == null
                 ? ForestLodSettings.CreatePreset(qualityPreset)
                 : customLodSettings.Clone();
+        }
+
+        public GpuGrassSettings ResolveGpuGrassSettings()
+        {
+            return usePresetValues || gpuGrassSettings == null
+                ? GpuGrassSettings.CreatePreset(qualityPreset)
+                : gpuGrassSettings.Clone();
         }
 
         public void Configure(ForestQualityLevel preset, bool usePreset = true)
@@ -204,6 +344,11 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Config
             if (usePresetValues || customLodSettings == null)
             {
                 customLodSettings = ForestLodSettings.CreatePreset(preset);
+            }
+
+            if (usePresetValues || gpuGrassSettings == null)
+            {
+                gpuGrassSettings = GpuGrassSettings.CreatePreset(preset);
             }
         }
     }

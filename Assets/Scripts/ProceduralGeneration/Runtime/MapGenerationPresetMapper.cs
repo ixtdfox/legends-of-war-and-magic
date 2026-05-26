@@ -60,7 +60,9 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Runtime
             settings.ConfigureProps(true, BuildPropCategories(settings, safeRequest.PropDensity, safeRequest.TreeDensity, settings.AssetCatalog));
             settings.ConfigureTerrainDetails(
                 true,
-                ResolveDetailDensity(safeRequest.PropDensity) * settings.ForestLodSettings.FoliageDensityScale,
+                ResolveDetailDensity(safeRequest.PropDensity) *
+                settings.ForestLodSettings.FoliageDensityScale *
+                settings.GpuGrassSettings.TerrainDetailDensityScale,
                 sizePreset.DetailResolution,
                 64);
 
