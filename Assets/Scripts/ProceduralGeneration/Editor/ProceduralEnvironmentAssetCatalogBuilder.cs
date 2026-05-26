@@ -9,10 +9,11 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Editor
     public static class ProceduralEnvironmentAssetCatalogBuilder
     {
         private const string CatalogPath = "Assets/Resources/ProceduralGeneration/DefaultEnvironmentAssetCatalog.asset";
-        private const string IdyllicRoot = "Assets/Idyllic Fantasy Nature";
-        private const string IdyllicPrefabRoot = IdyllicRoot + "/Prefabs";
-        private const string IdyllicTerrainLayerRoot = IdyllicRoot + "/Terrain Layer";
-        private const string IdyllicGrassTextureRoot = IdyllicRoot + "/Textures/Grass";
+        private const string ResourceRoot = "Assets/Resources";
+        private const string ResourcePrefabRoot = ResourceRoot + "/Prefabs";
+        private const string ResourceTextureRoot = ResourceRoot + "/Textures";
+        private const string ResourceGrassTextureRoot = ResourceTextureRoot + "/Grass";
+        private const string ResourceTerrainLayerRoot = ResourceRoot + "/TerrainLayers";
         private const string GeneratedLayerFolder = "Assets/Resources/ProceduralGeneration/GeneratedTerrainLayers";
 
         [MenuItem("Tools/Legends of War and Magic/Procedural Generation/Rebuild Environment Asset Catalog")]
@@ -53,17 +54,21 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Editor
 
         private static List<TerrainSurfaceDefinition> BuildTerrainSurfaces()
         {
+            EnsureFristyTerrainLayers();
+
             var surfaces = new List<TerrainSurfaceDefinition>();
-            if (TryAddIdyllicTerrainLayer(surfaces, TerrainSurfaceRole.Shore, "Idyllic Sand Shore", "Sand_Layer", new Color(0.55f, 0.48f, 0.31f, 1f), 8f) &&
-                TryAddIdyllicTerrainLayer(surfaces, TerrainSurfaceRole.Ground, "Idyllic Forest Ground", "Forest_Layer", new Color(0.12f, 0.28f, 0.12f, 1f), 10f) &&
-                TryAddIdyllicTerrainLayer(surfaces, TerrainSurfaceRole.Rock, "Idyllic Rock", "Rock_Layer", new Color(0.36f, 0.36f, 0.34f, 1f), 9f) &&
-                TryAddIdyllicTerrainLayer(surfaces, TerrainSurfaceRole.Highland, "Idyllic Dirt Stone Highland", "Dirt_Stone_Layer", new Color(0.54f, 0.56f, 0.50f, 1f), 11f))
+            TryAddLocalTerrainLayer(surfaces, TerrainSurfaceRole.Shore, "Fristy Mud Shore", "Fristy_Terrain_Mud", new Color(0.55f, 0.48f, 0.31f, 1f), 8f);
+            TryAddLocalTerrainLayer(surfaces, TerrainSurfaceRole.Ground, "Fristy Grass Ground", "Fristy_Terrain_Grass", new Color(0.12f, 0.28f, 0.12f, 1f), 10f);
+            TryAddLocalTerrainLayer(surfaces, TerrainSurfaceRole.Rock, "Fristy Rock", "Fristy_Terrain_Rock", new Color(0.36f, 0.36f, 0.34f, 1f), 9f);
+            TryAddLocalTerrainLayer(surfaces, TerrainSurfaceRole.Highland, "Fristy Soil Highland", "Fristy_Terrain_Soil", new Color(0.54f, 0.56f, 0.50f, 1f), 11f);
+
+            if (surfaces.Count >= 4)
             {
                 return surfaces;
             }
 
             var selectedTextures = new Dictionary<TerrainSurfaceRole, Texture2D>();
-            var textureSearchRoot = AssetDatabase.IsValidFolder(IdyllicRoot) ? IdyllicRoot : "Assets";
+            var textureSearchRoot = AssetDatabase.IsValidFolder(ResourceTextureRoot) ? ResourceTextureRoot : ResourceRoot;
             var textureGuids = AssetDatabase.FindAssets("t:Texture2D", new[] { textureSearchRoot });
 
             for (var i = 0; i < textureGuids.Length; i++)
@@ -94,7 +99,81 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Editor
             return surfaces;
         }
 
-        private static bool TryAddIdyllicTerrainLayer(
+        private static void EnsureFristyTerrainLayers()
+        {
+            var terrainLayerFolder = $"{ResourceTerrainLayerRoot}/Terrain";
+            EnsureFolder(terrainLayerFolder);
+
+            CreateOrUpdateTerrainLayerAsset(
+                $"{terrainLayerFolder}/Fristy_Terrain_Mud.terrainlayer",
+                $"{ResourceTextureRoot}/Terrain/Fristy_Terrain_Dark_Sand.png",
+                $"{ResourceTextureRoot}/Terrain/Fristy_Terrain_Soil_04_Normal.png",
+                9f,
+                0.42f);
+            CreateOrUpdateTerrainLayerAsset(
+                $"{terrainLayerFolder}/Fristy_Terrain_Grass.terrainlayer",
+                $"{ResourceTextureRoot}/Grass/Fristy_Grass_AlbedoFinal_02.png",
+                $"{ResourceTextureRoot}/Grass/Fristy_Grass_Normal.png",
+                7f,
+                0.26f);
+            CreateOrUpdateTerrainLayerAsset(
+                $"{terrainLayerFolder}/Fristy_Terrain_Grass_01.terrainlayer",
+                $"{ResourceTextureRoot}/Grass/Fristy_Grass_02.psd",
+                $"{ResourceTextureRoot}/Grass/Fristy_Grass_Normal.png",
+                5.5f,
+                0.22f);
+            CreateOrUpdateTerrainLayerAsset(
+                $"{terrainLayerFolder}/Fristy_Terrain_Rock.terrainlayer",
+                $"{ResourceTextureRoot}/Rocks/Fristy_Rock_T_D_02.png",
+                $"{ResourceTextureRoot}/Rocks/Fristy_Rock_T_N_02.png",
+                8f,
+                0.35f);
+            CreateOrUpdateTerrainLayerAsset(
+                $"{terrainLayerFolder}/Fristy_Terrain_Soil.terrainlayer",
+                $"{ResourceTextureRoot}/Terrain/Fristy_Terrain_Soil_And_Rocks_Albedo.png",
+                $"{ResourceTextureRoot}/Terrain/Fristy_Terrain_Soil_And_Rocks_Normal.png",
+                12f,
+                0.31f);
+        }
+
+        private static TerrainLayer CreateOrUpdateTerrainLayerAsset(
+            string layerPath,
+            string diffusePath,
+            string normalPath,
+            float tileSize,
+            float smoothness)
+        {
+            var layer = AssetDatabase.LoadAssetAtPath<TerrainLayer>(layerPath);
+            if (layer == null)
+            {
+                layer = new TerrainLayer
+                {
+                    name = Path.GetFileNameWithoutExtension(layerPath)
+                };
+                AssetDatabase.CreateAsset(layer, layerPath);
+            }
+
+            var diffuse = AssetDatabase.LoadAssetAtPath<Texture2D>(diffusePath);
+            var normal = AssetDatabase.LoadAssetAtPath<Texture2D>(normalPath);
+            if (diffuse != null)
+            {
+                layer.diffuseTexture = diffuse;
+            }
+
+            if (normal != null)
+            {
+                layer.normalMapTexture = normal;
+            }
+
+            layer.tileSize = new Vector2(tileSize, tileSize);
+            layer.metallic = 0f;
+            layer.smoothness = smoothness;
+            layer.normalScale = normal != null ? 0.75f : 0f;
+            EditorUtility.SetDirty(layer);
+            return layer;
+        }
+
+        private static bool TryAddLocalTerrainLayer(
             List<TerrainSurfaceDefinition> surfaces,
             TerrainSurfaceRole role,
             string surfaceName,
@@ -102,7 +181,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Editor
             Color fallbackColor,
             float tileSize)
         {
-            var layerPath = $"{IdyllicTerrainLayerRoot}/{layerNameWithoutExtension}.terrainlayer";
+            var layerPath = $"{ResourceTerrainLayerRoot}/Terrain/{layerNameWithoutExtension}.terrainlayer";
             var layer = AssetDatabase.LoadAssetAtPath<TerrainLayer>(layerPath);
             if (layer == null)
             {
@@ -123,6 +202,11 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Editor
             Color fallbackColor,
             float tileSize)
         {
+            if (HasSurface(surfaces, role))
+            {
+                return;
+            }
+
             if (!selectedTextures.TryGetValue(role, out var texture) || texture == null)
             {
                 return;
@@ -132,6 +216,19 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Editor
             var definition = new TerrainSurfaceDefinition();
             definition.Configure(role, surfaceName, terrainLayer, fallbackColor, tileSize);
             surfaces.Add(definition);
+        }
+
+        private static bool HasSurface(IReadOnlyList<TerrainSurfaceDefinition> surfaces, TerrainSurfaceRole role)
+        {
+            for (var i = 0; i < surfaces.Count; i++)
+            {
+                if (surfaces[i] != null && surfaces[i].Role == role)
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private static TerrainLayer CreateOrUpdateTerrainLayer(TerrainSurfaceRole role, Texture2D diffuseTexture, float tileSize)
@@ -166,7 +263,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Editor
                 { ProceduralPropRole.Log, new List<GameObject>() }
             };
 
-            var prefabSearchRoot = AssetDatabase.IsValidFolder(IdyllicPrefabRoot) ? IdyllicPrefabRoot : "Assets";
+            var prefabSearchRoot = AssetDatabase.IsValidFolder(ResourcePrefabRoot) ? ResourcePrefabRoot : ResourceRoot;
             var prefabGuids = AssetDatabase.FindAssets("t:Prefab", new[] { prefabSearchRoot });
             for (var i = 0; i < prefabGuids.Length; i++)
             {
@@ -202,7 +299,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Editor
         {
             var details = new List<TerrainDetailDefinition>();
             AddGrassTextureDetails(details);
-            var prefabSearchRoot = AssetDatabase.IsValidFolder(IdyllicPrefabRoot) ? IdyllicPrefabRoot : "Assets";
+            var prefabSearchRoot = AssetDatabase.IsValidFolder(ResourcePrefabRoot) ? ResourcePrefabRoot : ResourceRoot;
             var prefabGuids = AssetDatabase.FindAssets("t:Prefab", new[] { prefabSearchRoot });
             var grassMeshCount = 0;
             var flowerCount = 0;
@@ -282,15 +379,22 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Editor
 
         private static int AddGrassTextureDetails(List<TerrainDetailDefinition> details)
         {
-            if (!AssetDatabase.IsValidFolder(IdyllicGrassTextureRoot))
+            if (!AssetDatabase.IsValidFolder(ResourceGrassTextureRoot))
             {
                 return 0;
             }
 
             var count = 0;
-            for (var index = 1; index <= 3; index++)
+            var textureGuids = AssetDatabase.FindAssets("t:Texture2D", new[] { ResourceGrassTextureRoot });
+            for (var i = 0; i < textureGuids.Length && count < 3; i++)
             {
-                var texturePath = $"{IdyllicGrassTextureRoot}/Grass_{index:00}.png";
+                var texturePath = AssetDatabase.GUIDToAssetPath(textureGuids[i]);
+                var textureKey = Path.GetFileNameWithoutExtension(texturePath).ToLowerInvariant();
+                if (ShouldSkipTerrainTexture(texturePath) || !ContainsAny(textureKey, "grass", "albedo", "diffuse"))
+                {
+                    continue;
+                }
+
                 var texture = AssetDatabase.LoadAssetAtPath<Texture2D>(texturePath);
                 if (texture == null)
                 {
@@ -300,7 +404,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Editor
                 var definition = new TerrainDetailDefinition();
                 definition.ConfigureTexture(
                     TerrainDetailRole.Grass,
-                    $"Grass_{index:00}",
+                    Path.GetFileNameWithoutExtension(texturePath),
                     texture,
                     12.5f,
                     new Vector2(0.55f, 1.05f),
@@ -353,7 +457,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Editor
         private static void LogPropCategorySummary(Dictionary<ProceduralPropRole, List<GameObject>> buckets)
         {
             Debug.Log(
-                "Environment catalog rebuilt from Idyllic Fantasy Nature:\n" +
+                "Environment catalog rebuilt from local Fristy Resources:\n" +
                 $"- ForestCoreTrees: {buckets[ProceduralPropRole.ForestCoreTrees].Count}\n" +
                 $"- ForestAccentTrees: {buckets[ProceduralPropRole.ForestAccentTrees].Count}\n" +
                 $"- Bushes: {buckets[ProceduralPropRole.Bushes].Count}\n" +
@@ -386,7 +490,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Editor
                 return true;
             }
 
-            if (ContainsAny(key, "highland", "mountain", "snow", "peak"))
+            if (ContainsAny(key, "highland", "mountain", "snow", "peak", "soil"))
             {
                 role = TerrainSurfaceRole.Highland;
                 return true;
@@ -399,7 +503,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Editor
         private static bool TryClassifyProp(string assetPath, out ProceduralPropRole role)
         {
             var key = Path.GetFileNameWithoutExtension(assetPath).ToLowerInvariant();
-            if (ContainsAny(key, "reeds_", "cattail_", "lilypads_", "waterlily_"))
+            if (ContainsAny(key, "reeds_", "cattail_", "lilypads_", "waterlily_", "shoreplant", "river"))
             {
                 role = ProceduralPropRole.ShorePlants;
                 return true;
@@ -411,7 +515,8 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Editor
                 return true;
             }
 
-            if (key.StartsWith("fir_") ||
+            if (key.Contains("tree") ||
+                key.StartsWith("fir_") ||
                 (key.StartsWith("broadleaftree_") && key.EndsWith("_green")) ||
                 (key.StartsWith("willowtree_") && key.EndsWith("_green")))
             {
@@ -433,13 +538,16 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Editor
                 return true;
             }
 
-            if (key.StartsWith("rock_big_") || key.StartsWith("stone_big_"))
+            if (ContainsAny(key, "boulder", "rock_04", "rock_4", "rock_large") ||
+                key.StartsWith("rock_big_") ||
+                key.StartsWith("stone_big_"))
             {
                 role = ProceduralPropRole.RocksLarge;
                 return true;
             }
 
-            if (key.StartsWith("rock_medium_") ||
+            if (key.Contains("rock") ||
+                key.StartsWith("rock_medium_") ||
                 key.StartsWith("rock_small_") ||
                 key.StartsWith("stone_medium_") ||
                 key.StartsWith("stones_"))
@@ -448,19 +556,21 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Editor
                 return true;
             }
 
-            if (key.StartsWith("bush_"))
+            if (key.StartsWith("bush_") || key.Contains("bush") || key.Contains("vegetation") || key.Contains("vine") || key.Contains("ivy"))
             {
                 role = ProceduralPropRole.Bushes;
                 return true;
             }
 
-            if (key.StartsWith("grass_"))
+            if (key.StartsWith("grass_") || key.Contains("grass"))
             {
                 role = ProceduralPropRole.GroundGrass;
                 return true;
             }
 
             if (key.StartsWith("plant_") ||
+                key.Contains("plant") ||
+                key.Contains("weed") ||
                 key == "plants" ||
                 key.StartsWith("flower") ||
                 key.StartsWith("flowermeadow_"))
@@ -476,19 +586,19 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Editor
         private static bool TryClassifyTerrainDetail(string assetPath, out TerrainDetailRole role)
         {
             var key = assetPath.ToLowerInvariant();
-            if (ContainsAny(key, "grass_"))
+            if (ContainsAny(key, "grass"))
             {
                 role = TerrainDetailRole.Grass;
                 return true;
             }
 
-            if (ContainsAny(key, "flower"))
+            if (ContainsAny(key, "flower", "purple", "white"))
             {
                 role = TerrainDetailRole.Flowers;
                 return true;
             }
 
-            if (ContainsAny(key, "plant_"))
+            if (ContainsAny(key, "plant", "weed"))
             {
                 role = TerrainDetailRole.LowPlants;
                 return true;

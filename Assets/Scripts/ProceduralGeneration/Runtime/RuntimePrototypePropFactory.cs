@@ -3,7 +3,7 @@ using UnityEngine;
 
 namespace LegendsOfWarAndMagic.ProceduralGeneration.Runtime
 {
-    [Obsolete("Production generation must use ProceduralEnvironmentAssetCatalog with Idyllic Fantasy Nature prefabs.")]
+    [Obsolete("Production generation must use ProceduralEnvironmentAssetCatalog with local Fristy Resources prefabs.")]
     internal static class RuntimePrototypePropFactory
     {
         private static readonly GameObject[] EmptyPrefabs = Array.Empty<GameObject>();
@@ -41,7 +41,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Runtime
             }
 
             Debug.LogError(
-                "Runtime prototype prop fallback is disabled. Rebuild DefaultEnvironmentAssetCatalog from Idyllic Fantasy Nature assets.");
+                "Runtime prototype prop fallback is disabled. Rebuild DefaultEnvironmentAssetCatalog from local Fristy Resources assets.");
             loggedFallback = true;
         }
     }

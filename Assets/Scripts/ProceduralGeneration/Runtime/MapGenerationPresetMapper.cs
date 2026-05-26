@@ -191,7 +191,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Runtime
                     {
                         Debug.LogWarning(
                             $"Prop category '{source.CategoryName}' was skipped because it references prototype runtime prefabs. " +
-                            "Rebuild the Idyllic environment catalog to generate production props.");
+                            "Rebuild the Fristy Resources environment catalog to generate production props.");
                         continue;
                     }
 
@@ -207,7 +207,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Runtime
             Debug.LogError(
                 "No production environment prop prefabs were resolved. " +
                 "Generation will continue without props instead of spawning primitive prototype trees/rocks/grass. " +
-                "Run Tools/Legends of War and Magic/Procedural Generation/Rebuild Environment Asset Catalog.");
+                "Run Tools/Legends of War and Magic/Procedural Generation/Organize Fristy Nature Resources.");
             return categories;
         }
 

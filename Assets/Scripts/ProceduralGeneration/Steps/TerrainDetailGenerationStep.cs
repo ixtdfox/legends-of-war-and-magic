@@ -72,8 +72,8 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
             if (definitions.Count == 0)
             {
                 Debug.LogWarning(
-                    "Terrain detail generation skipped: environment catalog has no Idyllic terrain detail prototypes. " +
-                    "Rebuild the environment catalog instead of generating runtime prototype grass.");
+                    "Terrain detail generation skipped: environment catalog has no Fristy terrain detail prototypes. " +
+                    "Run Tools/Legends of War and Magic/Procedural Generation/Organize Fristy Nature Resources.");
             }
 
             return definitions;
