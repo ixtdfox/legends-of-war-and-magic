@@ -41,16 +41,27 @@ MonoBehaviour:
     - {fileID: 4619885076900548151, guid: 6e3bc504a7d6d5753a9d2f114ef39844, type: 3}
     - {fileID: 7277531057322997259, guid: 203fda07d250cffd98476d646d533b2a, type: 3}
     - {fileID: 1359530885335178052, guid: ccea8340d8143116fb9c9d901bb0f21c, type: 3}
+    - {fileID: 3153039321099780481, guid: 5a70162cf69f43a2d877bff09b957e00, type: 3}
+    baseDensityPer10kSqm: 10.2
+    minDistanceBetweenInstances: 4.4
+    allowedSlopeRange: {x: 0, y: 38}
+    randomScaleRange: {x: 0.8, y: 1.38}
+    randomYRotation: 1
+    maxDrawDistance: 170
+    attemptsMultiplier: 14
+  - role: 6
+    categoryName: ForestAccentTrees
+    enabled: 0
+    prefabs:
     - {fileID: 7504883200864932577, guid: e9a58eb2dd3b325f58944a707f4843ba, type: 3}
     - {fileID: 1285190234205389187, guid: 998154ed91fdd7e16bb153837b3dfed4, type: 3}
     - {fileID: 6752551473966630956, guid: 69390a00625a44bf089111c30bfead58, type: 3}
-    - {fileID: 3153039321099780481, guid: 5a70162cf69f43a2d877bff09b957e00, type: 3}
-    baseDensityPer10kSqm: 9.4
-    minDistanceBetweenInstances: 5.1
-    allowedSlopeRange: {x: 0, y: 36}
-    randomScaleRange: {x: 0.9, y: 1.28}
+    baseDensityPer10kSqm: 0.65
+    minDistanceBetweenInstances: 7.4
+    allowedSlopeRange: {x: 0, y: 32}
+    randomScaleRange: {x: 0.74, y: 1.26}
     randomYRotation: 1
-    maxDrawDistance: 620
+    maxDrawDistance: 170
     attemptsMultiplier: 11
   - role: 7
     categoryName: Bushes

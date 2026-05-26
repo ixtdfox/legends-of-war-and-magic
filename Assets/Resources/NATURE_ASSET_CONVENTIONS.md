@@ -80,3 +80,11 @@ Fristy prefabs могут приходить без physics collider, особе
 
 Твердые роли: `Tree`, `ForestCoreTrees`, `ForestAccentTrees`, `Rock`, `RocksSmallMedium`, `RocksLarge`, `Cliff`, `Log`, `Bushes`.
 Трава, низкие растения и shore plants остаются без blocking collider.
+
+## Dense forest generation
+
+На максимальной густоте деревья должны выглядеть как лес, а не как одиночные props.
+`MapGenerationPresetMapper` усиливает верхнюю часть `TreeDensity`: повышает density, снижает tree spacing, расширяет slope tolerance и forest cluster coverage.
+`PropPlacementStep` разрешает кронам стоять ближе друг к другу через компактный tree placement footprint, но физический collider остается на стволе.
+Не использовать per-instance `MaterialPropertyBlock` для tint листвы на тысячах деревьев: это резко увеличивает batches и ломает производительность.
+Вариативность леса сейчас должна идти через prefab variety, Y-rotation и scale range; tint лучше делать только через небольшой набор заранее созданных material variants или через GPU-friendly shader/instancing.

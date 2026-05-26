@@ -271,25 +271,31 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
             var shoreBand = settings.WaterEnabled
                 ? Mathf.Clamp01(1f - Mathf.Abs(point.y - (settings.WaterLevel + 0.85f)) / Mathf.Max(2.4f, settings.TerrainHeight * 0.025f))
                 : 0f;
+            var denseForest = Mathf.InverseLerp(2.4f, 4f, category.ClusterStrength);
+            var forestFlat = Mathf.Lerp(flat01, 1f - SmoothRange(26f, 52f, slope), denseForest);
+            var coreForestMask = cluster * Mathf.Lerp(0.94f, 0.78f, denseForest) +
+                                 meadowNoise * Mathf.Lerp(0.18f, 0.30f, denseForest) +
+                                 groveNoise * 0.18f * denseForest +
+                                 0.26f * denseForest;
 
             return category.Role switch
             {
                 ProceduralPropRole.Tree => Mathf.Clamp01(
-                    (cluster * 0.94f + meadowNoise * 0.18f) *
-                    flat01 *
+                    coreForestMask *
+                    forestFlat *
                     (1f - shore * 0.22f) *
-                    (1f - high01 * 0.36f) *
+                    (1f - high01 * Mathf.Lerp(0.36f, 0.22f, denseForest)) *
                     Mathf.Lerp(0.72f, 1.18f, understoryNoise)),
                 ProceduralPropRole.ForestCoreTrees => Mathf.Clamp01(
-                    (cluster * 0.94f + meadowNoise * 0.18f) *
-                    flat01 *
+                    coreForestMask *
+                    forestFlat *
                     (1f - shore * 0.22f) *
-                    (1f - high01 * 0.36f) *
+                    (1f - high01 * Mathf.Lerp(0.36f, 0.22f, denseForest)) *
                     Mathf.Lerp(0.72f, 1.18f, understoryNoise)),
                 ProceduralPropRole.ForestAccentTrees => Mathf.Clamp01(
-                    SmoothRange(0.48f, 0.84f, groveNoise) *
+                    (SmoothRange(0.48f, 0.84f, groveNoise) + denseForest * 0.18f) *
                     Mathf.Pow(cluster, 0.65f) *
-                    flat01 *
+                    forestFlat *
                     (1f - shore * 0.25f) *
                     (1f - high01 * 0.28f)),
                 ProceduralPropRole.Bushes => Mathf.Clamp01(
@@ -700,9 +706,9 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                 ProceduralPropRole.RocksLarge => 0.42f,
                 ProceduralPropRole.Rock => 0.35f,
                 ProceduralPropRole.RocksSmallMedium => 0.34f,
-                ProceduralPropRole.ForestCoreTrees => 0.28f,
-                ProceduralPropRole.Tree => 0.28f,
-                ProceduralPropRole.ForestAccentTrees => 0.24f,
+                ProceduralPropRole.ForestCoreTrees => 0.22f,
+                ProceduralPropRole.Tree => 0.22f,
+                ProceduralPropRole.ForestAccentTrees => 0.20f,
                 ProceduralPropRole.Bushes => 0.30f,
                 ProceduralPropRole.Log => 0.30f,
                 ProceduralPropRole.GroundGrass => 0.18f,
@@ -720,9 +726,9 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                 ProceduralPropRole.RocksLarge => 0.82f,
                 ProceduralPropRole.Rock => 0.78f,
                 ProceduralPropRole.RocksSmallMedium => 0.76f,
-                ProceduralPropRole.ForestCoreTrees => 0.26f,
-                ProceduralPropRole.Tree => 0.26f,
-                ProceduralPropRole.ForestAccentTrees => 0.24f,
+                ProceduralPropRole.ForestCoreTrees => 0.14f,
+                ProceduralPropRole.Tree => 0.14f,
+                ProceduralPropRole.ForestAccentTrees => 0.13f,
                 ProceduralPropRole.Bushes => 0.48f,
                 ProceduralPropRole.Log => 0.46f,
                 ProceduralPropRole.GroundGrass => 0.32f,
@@ -740,9 +746,9 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                 ProceduralPropRole.RocksLarge => 1.1f,
                 ProceduralPropRole.Rock => 0.9f,
                 ProceduralPropRole.RocksSmallMedium => 0.9f,
-                ProceduralPropRole.ForestCoreTrees => 0.8f,
-                ProceduralPropRole.Tree => 0.8f,
-                ProceduralPropRole.ForestAccentTrees => 0.65f,
+                ProceduralPropRole.ForestCoreTrees => 0.35f,
+                ProceduralPropRole.Tree => 0.35f,
+                ProceduralPropRole.ForestAccentTrees => 0.30f,
                 ProceduralPropRole.Bushes => 0.45f,
                 ProceduralPropRole.Log => 0.35f,
                 ProceduralPropRole.GroundGrass => 0.1f,
@@ -760,9 +766,9 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                 ProceduralPropRole.RocksLarge => 2.4f,
                 ProceduralPropRole.Rock => 1.3f,
                 ProceduralPropRole.RocksSmallMedium => 1.0f,
-                ProceduralPropRole.ForestCoreTrees => 1.6f,
-                ProceduralPropRole.Tree => 1.6f,
-                ProceduralPropRole.ForestAccentTrees => 1.3f,
+                ProceduralPropRole.ForestCoreTrees => 0.95f,
+                ProceduralPropRole.Tree => 0.95f,
+                ProceduralPropRole.ForestAccentTrees => 0.85f,
                 ProceduralPropRole.Bushes => 0.8f,
                 ProceduralPropRole.Log => 1.1f,
                 ProceduralPropRole.GroundGrass => 0.25f,
@@ -780,9 +786,9 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                 ProceduralPropRole.RocksLarge => 9f,
                 ProceduralPropRole.Rock => 6.5f,
                 ProceduralPropRole.RocksSmallMedium => 5.2f,
-                ProceduralPropRole.ForestCoreTrees => 4.8f,
-                ProceduralPropRole.Tree => 4.8f,
-                ProceduralPropRole.ForestAccentTrees => 4f,
+                ProceduralPropRole.ForestCoreTrees => 2.4f,
+                ProceduralPropRole.Tree => 2.4f,
+                ProceduralPropRole.ForestAccentTrees => 2.0f,
                 ProceduralPropRole.Bushes => 3.2f,
                 ProceduralPropRole.Log => 4.5f,
                 ProceduralPropRole.GroundGrass => 1.1f,

@@ -268,11 +268,14 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Runtime
             var normalized = Mathf.Clamp01(treeDensity);
             var densityMultiplier = ResolveTreeDensityMultiplier(normalized);
             var minDistance = Mathf.Lerp(
-                source.MinDistanceBetweenInstances * 1.35f,
-                Mathf.Max(2.35f, source.MinDistanceBetweenInstances * 0.34f),
+                source.MinDistanceBetweenInstances * 1.28f,
+                Mathf.Max(2.05f, source.MinDistanceBetweenInstances * 0.38f),
                 normalized);
             var slopeRange = source.AllowedSlopeRange;
-            slopeRange.y = Mathf.Lerp(Mathf.Min(slopeRange.y, 28f), Mathf.Max(slopeRange.y, 38f), normalized);
+            slopeRange.y = Mathf.Lerp(Mathf.Min(slopeRange.y, 28f), Mathf.Max(slopeRange.y, 42f), normalized);
+            var scaleRange = new Vector2(
+                Mathf.Lerp(Mathf.Max(0.82f, source.RandomScaleRange.x), 0.78f, normalized),
+                Mathf.Lerp(Mathf.Max(1.25f, source.RandomScaleRange.y), 1.46f, normalized));
 
             var tuned = new PropCategoryPlacementSettings();
             tuned.Configure(
@@ -283,19 +286,19 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Runtime
                 minDistance,
                 slopeRange,
                 source.AllowedHeightRange,
-                source.RandomScaleRange,
+                scaleRange,
                 source.RandomYRotation,
                 source.WarnIfMissingLodGroup,
                 source.ExpectLodGroup,
-                source.MaxDrawDistance,
-                Mathf.Lerp(7f, 13f, normalized));
+                Mathf.Lerp(source.MaxDrawDistance, 170f, normalized),
+                Mathf.Lerp(8f, 15f, normalized));
 
             tuned.ConfigureRoleAndBiome(
                 source.Role,
                 true,
-                Mathf.Lerp(0.62f, 0.18f, normalized),
-                Mathf.Lerp(330f, 185f, normalized),
-                Mathf.Lerp(0.9f, 3.8f, normalized),
+                Mathf.Lerp(0.62f, 0.14f, normalized),
+                Mathf.Lerp(330f, 165f, normalized),
+                Mathf.Lerp(0.9f, 3.45f, normalized),
                 0.02f,
                 0.02f,
                 0f);
@@ -308,29 +311,32 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Runtime
             float treeDensity)
         {
             var normalized = Mathf.Clamp01(treeDensity);
-            var densityMultiplier = Mathf.Lerp(0.18f, 0.95f, Mathf.SmoothStep(0f, 1f, normalized));
+            var densityMultiplier = Mathf.Lerp(0.20f, 1.8f, Mathf.SmoothStep(0f, 1f, normalized));
+            var scaleRange = new Vector2(
+                Mathf.Lerp(Mathf.Max(0.78f, source.RandomScaleRange.x), 0.76f, normalized),
+                Mathf.Lerp(Mathf.Max(1.12f, source.RandomScaleRange.y), 1.32f, normalized));
             var tuned = new PropCategoryPlacementSettings();
             tuned.Configure(
                 source.CategoryName,
                 source.Enabled,
                 source.Prefabs,
                 source.DensityPer10kSqm * densityMultiplier,
-                Mathf.Lerp(source.MinDistanceBetweenInstances * 1.35f, Mathf.Max(5.2f, source.MinDistanceBetweenInstances * 0.72f), normalized),
+                Mathf.Lerp(source.MinDistanceBetweenInstances * 1.25f, Mathf.Max(4.0f, source.MinDistanceBetweenInstances * 0.58f), normalized),
                 source.AllowedSlopeRange,
                 source.AllowedHeightRange,
-                source.RandomScaleRange,
+                scaleRange,
                 source.RandomYRotation,
                 source.WarnIfMissingLodGroup,
                 source.ExpectLodGroup,
-                source.MaxDrawDistance,
-                Mathf.Lerp(8f, 12f, normalized));
+                Mathf.Lerp(source.MaxDrawDistance, 170f, normalized),
+                Mathf.Lerp(9f, 14f, normalized));
 
             tuned.ConfigureRoleAndBiome(
                 source.Role,
                 true,
-                Mathf.Lerp(0.72f, 0.48f, normalized),
-                130f,
-                Mathf.Lerp(1.6f, 3.1f, normalized),
+                Mathf.Lerp(0.72f, 0.38f, normalized),
+                Mathf.Lerp(160f, 120f, normalized),
+                Mathf.Lerp(1.6f, 3.0f, normalized),
                 0.02f,
                 0.02f,
                 0.2f);
@@ -381,12 +387,12 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Runtime
         {
             if (normalizedDensity <= 0.72f)
             {
-                return Mathf.Lerp(0.18f, 1.2f, normalizedDensity / 0.72f);
+                return Mathf.Lerp(0.20f, 1.35f, normalizedDensity / 0.72f);
             }
 
             var highRange = Mathf.InverseLerp(0.72f, 1f, normalizedDensity);
             var eased = Mathf.SmoothStep(0f, 1f, highRange);
-            return Mathf.Lerp(1.2f, 5.4f, eased);
+            return Mathf.Lerp(1.35f, 4.9f, eased);
         }
 
         private static float ResolveDetailDensity(PropDensityOption option)

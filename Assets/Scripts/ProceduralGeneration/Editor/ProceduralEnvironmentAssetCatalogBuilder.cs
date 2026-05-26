@@ -276,13 +276,18 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Editor
                 var prefab = AssetDatabase.LoadAssetAtPath<GameObject>(path);
                 if (prefab != null)
                 {
+                    if (role == ProceduralPropRole.ForestCoreTrees && CountRenderers(prefab) > 7)
+                    {
+                        role = ProceduralPropRole.ForestAccentTrees;
+                    }
+
                     buckets[role].Add(prefab);
                 }
             }
 
             var categories = new List<ProceduralPropCategoryDefinition>();
-            AddPropCategory(categories, buckets, ProceduralPropRole.ForestCoreTrees, "ForestCoreTrees", 9.4f, 5.1f, new Vector2(0f, 36f), new Vector2(0.9f, 1.28f), 620f, 11f);
-            AddPropCategory(categories, buckets, ProceduralPropRole.ForestAccentTrees, "ForestAccentTrees", 0.22f, 8.5f, new Vector2(0f, 30f), new Vector2(0.85f, 1.12f), 620f, 8f, false);
+            AddPropCategory(categories, buckets, ProceduralPropRole.ForestCoreTrees, "ForestCoreTrees", 10.2f, 4.4f, new Vector2(0f, 38f), new Vector2(0.80f, 1.38f), 170f, 14f);
+            AddPropCategory(categories, buckets, ProceduralPropRole.ForestAccentTrees, "ForestAccentTrees", 0.65f, 7.4f, new Vector2(0f, 32f), new Vector2(0.74f, 1.26f), 170f, 11f, false);
             AddPropCategory(categories, buckets, ProceduralPropRole.Bushes, "Bushes", 4.6f, 3.6f, new Vector2(0f, 30f), new Vector2(0.75f, 1.3f), 260f, 8f);
             AddPropCategory(categories, buckets, ProceduralPropRole.GroundGrass, "GroundGrass", 34f, 1.15f, new Vector2(0f, 26f), new Vector2(0.78f, 1.35f), 115f, 8f);
             AddPropCategory(categories, buckets, ProceduralPropRole.GroundPlants, "GroundPlants", 7.5f, 2.1f, new Vector2(0f, 28f), new Vector2(0.65f, 1.25f), 170f, 8f);
@@ -293,6 +298,11 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Editor
             AddPropCategory(categories, buckets, ProceduralPropRole.Log, "LogsAndBranches", 1.05f, 6.5f, new Vector2(0f, 24f), new Vector2(0.82f, 1.35f), 280f, 8f);
             LogPropCategorySummary(buckets);
             return categories;
+        }
+
+        private static int CountRenderers(GameObject prefab)
+        {
+            return prefab == null ? 0 : prefab.GetComponentsInChildren<Renderer>(true).Length;
         }
 
         private static List<TerrainDetailDefinition> BuildTerrainDetails()
