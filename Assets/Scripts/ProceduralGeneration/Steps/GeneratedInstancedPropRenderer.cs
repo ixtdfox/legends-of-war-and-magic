@@ -15,6 +15,8 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
     public sealed class GeneratedInstancedPropRenderer : MonoBehaviour
     {
         private const int MaxInstancesPerBatch = 1023;
+        private const float HighDetailTreeShadowDistanceScale = 0.36f;
+        private const float MinimumHighDetailTreeShadowDistance = 10f;
 
         [SerializeField] private ForestQualityLevel qualityPreset = ForestQualityLevel.High;
         [SerializeField] private ForestLodSettings forestLodSettings = ForestLodSettings.CreatePreset(ForestQualityLevel.High);
@@ -192,6 +194,14 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
         {
             if (!isActiveAndEnabled || camera == null || drawGroups.Count == 0)
             {
+                if (isActiveAndEnabled && camera != null && drawGroups.Count == 0)
+                {
+                    RebuildRuntimeGroupsFromMarkers();
+                }
+            }
+
+            if (!isActiveAndEnabled || camera == null || drawGroups.Count == 0)
+            {
                 return;
             }
 
@@ -200,6 +210,31 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
             for (var i = 0; i < drawGroups.Count; i++)
             {
                 drawGroups[i].Draw(camera, cameraPosition, settings);
+            }
+        }
+
+        private void RebuildRuntimeGroupsFromMarkers()
+        {
+            var markers = GetComponentsInChildren<GeneratedInstancedPropInstance>(true);
+            if (markers == null || markers.Length == 0)
+            {
+                return;
+            }
+
+            prototypeCache.Clear();
+            drawGroupsByKey.Clear();
+            drawGroups.Clear();
+            instanceCount = 0;
+
+            for (var i = 0; i < markers.Length; i++)
+            {
+                var marker = markers[i];
+                if (marker == null || marker.SourcePrefab == null)
+                {
+                    continue;
+                }
+
+                RegisterPrefabInstance(marker.SourcePrefab, marker.Role, marker.transform, marker.MaxDrawDistance);
             }
         }
 
@@ -710,6 +745,8 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
             private readonly HashSet<string> sourcePrefabs = new(StringComparer.Ordinal);
 
             private Matrix4x4[] visibleMatrices = Array.Empty<Matrix4x4>();
+            private Matrix4x4[] sourceShadowMatrices = Array.Empty<Matrix4x4>();
+            private Matrix4x4[] noShadowMatrices = Array.Empty<Matrix4x4>();
 
             public DrawGroup(RenderElement element)
             {
@@ -784,26 +821,40 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                 EnsureVisibleCapacity(matrices.Count);
 
                 var visibleCount = 0;
+                var sourceShadowCount = 0;
+                var noShadowCount = 0;
                 var hasBounds = false;
+                var hasSourceShadowBounds = false;
+                var hasNoShadowBounds = false;
                 var visibleBounds = default(Bounds);
+                var sourceShadowBounds = default(Bounds);
+                var noShadowBounds = default(Bounds);
+                var splitTreeShadows = UsesTreeShadowSplit(settings);
                 for (var i = 0; i < matrices.Count; i++)
                 {
-                    if (ResolveActiveLod(i, cameraPosition, true, settings) != lodIndex)
-                    {
-                        continue;
-                    }
-
+                    var distance = Vector3.Distance(centers[i], cameraPosition);
+                    var activeLod = ResolveActiveLod(i, cameraPosition, true, settings, distance);
                     var matrix = matrices[i];
-                    visibleMatrices[visibleCount++] = matrix;
-                    var instanceBounds = TransformBounds(mesh.bounds, matrix);
-                    if (!hasBounds)
+
+                    if (activeLod == lodIndex)
                     {
-                        visibleBounds = instanceBounds;
-                        hasBounds = true;
-                    }
-                    else
-                    {
-                        visibleBounds.Encapsulate(instanceBounds);
+                        var instanceBounds = TransformBounds(mesh.bounds, matrix);
+                        visibleMatrices[visibleCount++] = matrix;
+                        Encapsulate(instanceBounds, ref visibleBounds, ref hasBounds);
+
+                        if (splitTreeShadows)
+                        {
+                            if (ShouldUseSourceTreeShadow(activeLod, distance, settings))
+                            {
+                                sourceShadowMatrices[sourceShadowCount++] = matrix;
+                                Encapsulate(instanceBounds, ref sourceShadowBounds, ref hasSourceShadowBounds);
+                            }
+                            else
+                            {
+                                noShadowMatrices[noShadowCount++] = matrix;
+                                Encapsulate(instanceBounds, ref noShadowBounds, ref hasNoShadowBounds);
+                            }
+                        }
                     }
                 }
 
@@ -817,20 +868,69 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                     visibleBounds = new Bounds(cameraPosition, Vector3.one);
                 }
 
+                if (splitTreeShadows)
+                {
+                    if (sourceShadowCount > 0)
+                    {
+                        DrawMatrices(
+                            camera,
+                            sourceShadowMatrices,
+                            sourceShadowCount,
+                            hasSourceShadowBounds ? sourceShadowBounds : visibleBounds,
+                            sourceShadowCastingMode,
+                            receiveShadows);
+                    }
+
+                    if (noShadowCount > 0)
+                    {
+                        DrawMatrices(
+                            camera,
+                            noShadowMatrices,
+                            noShadowCount,
+                            hasNoShadowBounds ? noShadowBounds : visibleBounds,
+                            ShadowCastingMode.Off,
+                            receiveShadows);
+                    }
+
+                    return;
+                }
+
+                DrawMatrices(
+                    camera,
+                    visibleMatrices,
+                    visibleCount,
+                    visibleBounds,
+                    ResolveShadowCastingMode(settings),
+                    receiveShadows);
+            }
+
+            private void DrawMatrices(
+                Camera camera,
+                Matrix4x4[] source,
+                int visibleCount,
+                Bounds bounds,
+                ShadowCastingMode shadowCastingMode,
+                bool shouldReceiveShadows)
+            {
+                if (visibleCount <= 0)
+                {
+                    return;
+                }
+
                 var renderParams = new RenderParams(material)
                 {
                     camera = camera,
                     layer = layer,
                     renderingLayerMask = renderingLayerMask,
-                    shadowCastingMode = ResolveShadowCastingMode(settings),
-                    receiveShadows = receiveShadows,
-                    worldBounds = visibleBounds
+                    shadowCastingMode = shadowCastingMode,
+                    receiveShadows = shouldReceiveShadows,
+                    worldBounds = bounds
                 };
 
                 for (var start = 0; start < visibleCount; start += MaxInstancesPerBatch)
                 {
                     var count = Mathf.Min(MaxInstancesPerBatch, visibleCount - start);
-                    Graphics.RenderMeshInstanced(renderParams, mesh, submeshIndex, visibleMatrices, count, start);
+                    Graphics.RenderMeshInstanced(renderParams, mesh, submeshIndex, source, count, start);
                 }
             }
 
@@ -855,13 +955,18 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
 
             private int ResolveActiveLod(int index, Vector3 cameraPosition, bool hasCamera, ForestLodSettings settings)
             {
+                var distance = hasCamera ? Vector3.Distance(centers[index], cameraPosition) : 0f;
+                return ResolveActiveLod(index, cameraPosition, hasCamera, settings, distance);
+            }
+
+            private int ResolveActiveLod(int index, Vector3 cameraPosition, bool hasCamera, ForestLodSettings settings, float distance)
+            {
                 if (!hasCamera)
                 {
                     return lodIndex;
                 }
 
                 var maxDrawDistance = maxDrawDistances[index];
-                var distance = Vector3.Distance(centers[index], cameraPosition);
                 if (!usesDistanceLod)
                 {
                     return maxDrawDistance <= 0f || distance <= maxDrawDistance ? 0 : -1;
@@ -897,6 +1002,32 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                 return sourceShadowCastingMode;
             }
 
+            private bool UsesTreeShadowSplit(ForestLodSettings settings)
+            {
+                return usesDistanceLod &&
+                       sourceShadowCastingMode != ShadowCastingMode.Off &&
+                       settings != null &&
+                       settings.ShadowDistance > 0f;
+            }
+
+            private bool ShouldUseSourceTreeShadow(int activeLod, float distance, ForestLodSettings settings)
+            {
+                if (activeLod != lodIndex || activeLod != 0 || settings == null)
+                {
+                    return false;
+                }
+
+                return IsInsideSourceTreeShadowDistance(distance, settings);
+            }
+
+            private static bool IsInsideSourceTreeShadowDistance(float distance, ForestLodSettings settings)
+            {
+                var highDetailShadowDistance = Mathf.Min(
+                    settings.ShadowDistance,
+                    Mathf.Max(MinimumHighDetailTreeShadowDistance, settings.Lod0Distance * HighDetailTreeShadowDistanceScale));
+                return distance <= highDetailShadowDistance;
+            }
+
             private string SourcePrefabsText
             {
                 get
@@ -927,8 +1058,42 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                     return;
                 }
 
-                visibleMatrices = new Matrix4x4[Mathf.NextPowerOfTwo(capacity)];
+                var arraySize = Mathf.NextPowerOfTwo(capacity);
+                visibleMatrices = new Matrix4x4[arraySize];
+                sourceShadowMatrices = new Matrix4x4[arraySize];
+                noShadowMatrices = new Matrix4x4[arraySize];
             }
+
+            private static void Encapsulate(Bounds source, ref Bounds target, ref bool hasBounds)
+            {
+                if (!hasBounds)
+                {
+                    target = source;
+                    hasBounds = true;
+                    return;
+                }
+
+                target.Encapsulate(source);
+            }
+        }
+    }
+
+    [DisallowMultipleComponent]
+    public sealed class GeneratedInstancedPropInstance : MonoBehaviour
+    {
+        [SerializeField] private GameObject sourcePrefab;
+        [SerializeField] private ProceduralPropRole role;
+        [SerializeField] private float maxDrawDistance;
+
+        public GameObject SourcePrefab => sourcePrefab;
+        public ProceduralPropRole Role => role;
+        public float MaxDrawDistance => maxDrawDistance;
+
+        public void Initialize(GameObject prefab, ProceduralPropRole propRole, float drawDistance)
+        {
+            sourcePrefab = prefab;
+            role = propRole;
+            maxDrawDistance = Mathf.Max(0f, drawDistance);
         }
     }
 }

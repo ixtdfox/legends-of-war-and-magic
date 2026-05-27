@@ -76,27 +76,45 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Runtime
                 ? source.Clone()
                 : GpuGrassSettings.CreatePreset(ForestQualityLevel.High);
             var saturation = Mathf.Clamp01(request.GrassSaturation);
-            var highDistance = Mathf.Clamp(request.GrassHighDetailDistance, 8f, 80f);
-            var drawDistance = Mathf.Clamp(request.GrassDrawDistance, highDistance + 12f, 180f);
-            var chunkSize = Mathf.Clamp(settings.ChunkSize, 8f, 24f);
-            var spacing = Mathf.Lerp(0.95f, 0.38f, saturation);
-            var visibleBudget = Mathf.RoundToInt(Mathf.Lerp(12000f, 120000f, saturation));
-            var densityScale = Mathf.Lerp(0.25f, 1.55f, saturation);
+            var nearDistance = Mathf.Clamp(request.GrassHighDetailDistance, 10f, 18f);
+            var midDistance = Mathf.Clamp(request.GrassDrawDistance * 0.34f, nearDistance + 8f, 46f);
+            var farVisualDistance = Mathf.Clamp(request.GrassDrawDistance, midDistance, 140f);
+            var clusterSize = Mathf.Clamp(settings.ClusterSize, 8f, 12f);
+            var spacing = Mathf.Lerp(0.62f, 0.44f, saturation);
+            var nearBudget = Mathf.RoundToInt(Mathf.Lerp(9000f, 18000f, saturation));
+            var midBudget = Mathf.RoundToInt(Mathf.Lerp(9000f, 24000f, saturation));
+            var triangleBudget = Mathf.RoundToInt(Mathf.Lerp(130000f, 260000f, saturation));
+            var densityScale = Mathf.Lerp(0.48f, 0.92f, saturation);
+            var midDensity = Mathf.Lerp(0.34f, 0.48f, saturation);
 
-            settings.Configure(
+            settings.ConfigureBudget(
                 settings.Enabled,
-                drawDistance,
-                highDistance,
-                chunkSize,
+                nearDistance,
+                midDistance,
+                farVisualDistance,
+                clusterSize,
                 spacing,
-                visibleBudget,
+                triangleBudget,
+                nearBudget,
+                midBudget,
                 densityScale,
+                midDensity,
                 settings.TerrainDetailDensityScale,
                 settings.TerrainDetailFallbackDistance,
                 settings.WindStrength,
                 settings.WindSpeed,
                 settings.WindScale,
-                settings.ReceiveShadows);
+                settings.EnableGrassShadows,
+                settings.EnableTerrainDensityTint,
+                settings.DensityGridResolution,
+                settings.MacroNoiseScale,
+                settings.MicroNoiseScale,
+                settings.NoiseOctaves,
+                settings.NoisePersistence,
+                settings.NoiseLacunarity,
+                settings.NoiseThresholdLow,
+                settings.NoiseThresholdHigh,
+                settings.NoiseContrast);
             return settings;
         }
 
@@ -241,6 +259,11 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Runtime
                         continue;
                     }
 
+                    if (source.Role == ProceduralPropRole.GroundGrass && settings.GpuGrassSettings.Enabled)
+                    {
+                        continue;
+                    }
+
                     var placement = TuneRuntimePropPlacementIfNeeded(CloneCategory(source, multiplier, settings.WaterLevel), densityOption, treeDensity);
                     placement = ApplyForestRenderBudget(placement, settings.ForestLodSettings);
                     if (placement != null)
@@ -267,15 +290,20 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Runtime
             var normalizedTrees = Mathf.Clamp01(treeDensity);
             if (densityOption == PropDensityOption.Low && normalizedTrees < 0.45f)
             {
-                return ForestQualityLevel.Medium;
+                return ForestQualityLevel.Low;
             }
 
-            if (densityOption == PropDensityOption.High || normalizedTrees >= 0.72f)
+            if (densityOption == PropDensityOption.High && normalizedTrees >= 0.86f)
             {
                 return ForestQualityLevel.High;
             }
 
-            return ForestQualityLevel.High;
+            if (normalizedTrees >= 0.92f)
+            {
+                return ForestQualityLevel.High;
+            }
+
+            return ForestQualityLevel.Medium;
         }
 
         private static PropCategoryPlacementSettings ApplyForestRenderBudget(

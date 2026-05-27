@@ -2,6 +2,7 @@ using LegendsOfWarAndMagic.ProceduralGeneration.Config;
 using LegendsOfWarAndMagic.ProceduralGeneration.Core;
 using LegendsOfWarAndMagic.ProceduralGeneration.Pipeline;
 using UnityEngine;
+using UnityEngine.Rendering;
 
 namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
 {
@@ -33,8 +34,22 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
             terrainObject.transform.SetParent(terrainRoot, false);
             terrainObject.transform.position = new Vector3(-settings.WorldWidth * 0.5f, 0f, -settings.WorldLength * 0.5f);
             context.GeneratedTerrain = terrainObject.GetComponent<Terrain>();
+            ConfigureTerrainRenderCost(context.GeneratedTerrain);
             GeneratedTerrainVisuals.Apply(context.GeneratedTerrain, settings, context.Seed);
             context.RecordSpawn("Terrain", 1);
+        }
+
+        private static void ConfigureTerrainRenderCost(Terrain terrain)
+        {
+            if (terrain == null)
+            {
+                return;
+            }
+
+            terrain.drawInstanced = true;
+            terrain.shadowCastingMode = ShadowCastingMode.Off;
+            terrain.reflectionProbeUsage = ReflectionProbeUsage.Off;
+            terrain.heightmapPixelError = 8f;
         }
 
         private static int SanitizeHeightmapResolution(int requestedResolution)

@@ -23,16 +23,87 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Config
         [SerializeField] private float highDetailDistance = 34f;
 
         [Min(4f)]
-        [SerializeField] private float chunkSize = 18f;
+        [SerializeField] private float chunkSize = 8f;
 
-        [Min(0.35f)]
-        [SerializeField] private float placementSpacing = 1.18f;
+        [Min(0.2f)]
+        [SerializeField] private float placementSpacing = 0.46f;
 
         [Min(0)]
         [SerializeField] private int maxVisibleClumps = 28000;
 
         [Range(0f, 2f)]
         [SerializeField] private float densityScale = 1f;
+
+        [Header("Ring LOD Budgets")]
+        [Min(0f)]
+        [SerializeField] private float nearDistance = 18f;
+
+        [Min(0f)]
+        [SerializeField] private float midDistance = 45f;
+
+        [Min(0f)]
+        [SerializeField] private float farVisualDistance = 95f;
+
+        [Min(0)]
+        [SerializeField] private int maxVisibleGrassTriangles = 260000;
+
+        [Min(0)]
+        [SerializeField] private int maxVisibleNearInstances = 18000;
+
+        [Min(0)]
+        [SerializeField] private int maxVisibleMidInstances = 24000;
+
+        [Range(0f, 1f)]
+        [SerializeField] private float midDensityMultiplier = 0.62f;
+
+        [SerializeField] private bool enableGrassShadows;
+
+        [SerializeField] private bool enableTerrainDensityTint = true;
+
+        [SerializeField] private bool enableJobs;
+
+        [SerializeField] private bool enableIndirectHighTier;
+
+        [SerializeField] private bool useOptimizedClusterRenderer = true;
+
+        [Header("Density Grid")]
+        [Min(16)]
+        [SerializeField] private int densityGridResolution = 256;
+
+        [SerializeField] private int grassSeed;
+
+        [Min(1f)]
+        [SerializeField] private float macroNoiseScale = 42f;
+
+        [Min(0.5f)]
+        [SerializeField] private float microNoiseScale = 4.5f;
+
+        [Range(1, 6)]
+        [SerializeField] private int noiseOctaves = 4;
+
+        [Range(0.1f, 0.9f)]
+        [SerializeField] private float noisePersistence = 0.52f;
+
+        [Range(1.1f, 3f)]
+        [SerializeField] private float noiseLacunarity = 2f;
+
+        [Range(0f, 1f)]
+        [SerializeField] private float noiseThresholdLow = 0.27f;
+
+        [Range(0f, 1f)]
+        [SerializeField] private float noiseThresholdHigh = 0.58f;
+
+        [Range(0.25f, 4f)]
+        [SerializeField] private float noiseContrast = 1.55f;
+
+        [Range(0f, 24f)]
+        [SerializeField] private float lodFadeDistance = 7f;
+
+        [Range(1, 8)]
+        [SerializeField] private int atlasColumns = 1;
+
+        [Range(1, 8)]
+        [SerializeField] private int atlasRows = 1;
 
         [Range(0f, 1f)]
         [SerializeField] private float terrainDetailDensityScale = 0.38f;
@@ -52,12 +123,45 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Config
         [SerializeField] private bool receiveShadows = true;
 
         public bool Enabled => enabled;
-        public float DrawDistance => Mathf.Max(0f, drawDistance);
-        public float HighDetailDistance => Mathf.Clamp(highDetailDistance, 0f, DrawDistance);
-        public float ChunkSize => Mathf.Max(4f, chunkSize);
-        public float PlacementSpacing => Mathf.Max(0.35f, placementSpacing);
-        public int MaxVisibleClumps => Mathf.Max(0, maxVisibleClumps);
+        public float DrawDistance => FarVisualDistance;
+        public float HighDetailDistance => NearDistance;
+        public float ChunkSize => ClusterSize;
+        public float PlacementSpacing => Mathf.Max(0.2f, placementSpacing);
+        public int MaxVisibleClumps => MaxVisibleNearInstances + MaxVisibleMidInstances;
         public float DensityScale => Mathf.Clamp(densityScale, 0f, 2f);
+        public float DensityMultiplier => DensityScale;
+        public float NearDistance => Mathf.Clamp(nearDistance > 0f ? nearDistance : highDetailDistance, 0f, FarVisualDistance);
+        public float MidDistance => Mathf.Clamp(midDistance > 0f ? midDistance : drawDistance, NearDistance, FarVisualDistance);
+        public float FarVisualDistance => Mathf.Max(
+            midDistance > 0f ? midDistance : drawDistance,
+            farVisualDistance > 0f ? farVisualDistance : drawDistance);
+        public int MaxVisibleGrassTriangles => maxVisibleGrassTriangles > 0 ? maxVisibleGrassTriangles : int.MaxValue;
+        public int MaxVisibleNearInstances => maxVisibleNearInstances > 0
+            ? maxVisibleNearInstances
+            : Mathf.RoundToInt(Mathf.Max(0, maxVisibleClumps) * 0.45f);
+        public int MaxVisibleMidInstances => maxVisibleMidInstances > 0
+            ? maxVisibleMidInstances
+            : Mathf.Max(0, maxVisibleClumps - MaxVisibleNearInstances);
+        public float ClusterSize => Mathf.Max(4f, chunkSize);
+        public float MidDensityMultiplier => Mathf.Clamp01(midDensityMultiplier);
+        public bool EnableGrassShadows => enableGrassShadows;
+        public bool EnableTerrainDensityTint => enableTerrainDensityTint;
+        public bool EnableJobs => enableJobs;
+        public bool EnableIndirectHighTier => enableIndirectHighTier;
+        public bool UseOptimizedClusterRenderer => useOptimizedClusterRenderer;
+        public int DensityGridResolution => Mathf.Clamp(densityGridResolution, 32, 1024);
+        public int GrassSeed => grassSeed;
+        public float MacroNoiseScale => Mathf.Max(1f, macroNoiseScale);
+        public float MicroNoiseScale => Mathf.Max(0.5f, microNoiseScale);
+        public int NoiseOctaves => Mathf.Clamp(noiseOctaves, 1, 6);
+        public float NoisePersistence => Mathf.Clamp(noisePersistence, 0.1f, 0.9f);
+        public float NoiseLacunarity => Mathf.Clamp(noiseLacunarity, 1.1f, 3f);
+        public float NoiseThresholdLow => Mathf.Min(noiseThresholdLow, noiseThresholdHigh);
+        public float NoiseThresholdHigh => Mathf.Max(noiseThresholdLow, noiseThresholdHigh);
+        public float NoiseContrast => Mathf.Clamp(noiseContrast, 0.25f, 4f);
+        public float LodFadeDistance => Mathf.Clamp(lodFadeDistance, 0f, MidDistance);
+        public int AtlasColumns => Mathf.Clamp(atlasColumns, 1, 8);
+        public int AtlasRows => Mathf.Clamp(atlasRows, 1, 8);
         public float TerrainDetailDensityScale => Mathf.Clamp01(terrainDetailDensityScale);
         public float TerrainDetailFallbackDistance => Mathf.Max(0f, terrainDetailFallbackDistance);
         public float WindStrength => Mathf.Clamp(windStrength, 0f, 2f);
@@ -83,6 +187,31 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Config
                 placementSpacing = placementSpacing,
                 maxVisibleClumps = maxVisibleClumps,
                 densityScale = densityScale,
+                nearDistance = nearDistance,
+                midDistance = midDistance,
+                farVisualDistance = farVisualDistance,
+                maxVisibleGrassTriangles = maxVisibleGrassTriangles,
+                maxVisibleNearInstances = maxVisibleNearInstances,
+                maxVisibleMidInstances = maxVisibleMidInstances,
+                midDensityMultiplier = midDensityMultiplier,
+                enableGrassShadows = enableGrassShadows,
+                enableTerrainDensityTint = enableTerrainDensityTint,
+                enableJobs = enableJobs,
+                enableIndirectHighTier = enableIndirectHighTier,
+                useOptimizedClusterRenderer = useOptimizedClusterRenderer,
+                densityGridResolution = densityGridResolution,
+                grassSeed = grassSeed,
+                macroNoiseScale = macroNoiseScale,
+                microNoiseScale = microNoiseScale,
+                noiseOctaves = noiseOctaves,
+                noisePersistence = noisePersistence,
+                noiseLacunarity = noiseLacunarity,
+                noiseThresholdLow = noiseThresholdLow,
+                noiseThresholdHigh = noiseThresholdHigh,
+                noiseContrast = noiseContrast,
+                lodFadeDistance = lodFadeDistance,
+                atlasColumns = atlasColumns,
+                atlasRows = atlasRows,
                 terrainDetailDensityScale = terrainDetailDensityScale,
                 terrainDetailFallbackDistance = terrainDetailFallbackDistance,
                 windStrength = windStrength,
@@ -97,16 +226,124 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Config
             switch (preset)
             {
                 case ForestQualityLevel.Low:
-                    Configure(true, 60f, 16f, 22f, 0.85f, 20000, 0.82f, 0.2f, 35f, 0.16f, 1.0f, 0.11f, false);
+                    ConfigureBudget(
+                        true,
+                        14f,
+                        38f,
+                        90f,
+                        8f,
+                        0.52f,
+                        180000,
+                        13000,
+                        19000,
+                        0.78f,
+                        0.42f,
+                        0.2f,
+                        35f,
+                        0.16f,
+                        1.0f,
+                        0.11f,
+                        false,
+                        true,
+                        256,
+                        42f,
+                        4.5f,
+                        4,
+                        0.52f,
+                        2f,
+                        0.27f,
+                        0.58f,
+                        1.55f);
                     break;
                 case ForestQualityLevel.Medium:
-                    Configure(true, 90f, 26f, 18f, 0.58f, 48000, 1.08f, 0.3f, 45f, 0.2f, 1.15f, 0.12f, true);
+                    ConfigureBudget(
+                        true,
+                        16f,
+                        44f,
+                        115f,
+                        8f,
+                        0.48f,
+                        230000,
+                        16000,
+                        26000,
+                        0.88f,
+                        0.46f,
+                        0.3f,
+                        45f,
+                        0.2f,
+                        1.15f,
+                        0.12f,
+                        false,
+                        true,
+                        256,
+                        46f,
+                        4.2f,
+                        4,
+                        0.52f,
+                        2f,
+                        0.25f,
+                        0.56f,
+                        1.6f);
                     break;
                 case ForestQualityLevel.Ultra:
-                    Configure(true, 135f, 42f, 16f, 0.38f, 120000, 1.4f, 0.48f, 70f, 0.28f, 1.45f, 0.14f, true);
+                    ConfigureBudget(
+                        true,
+                        20f,
+                        56f,
+                        150f,
+                        8f,
+                        0.42f,
+                        300000,
+                        22000,
+                        31000,
+                        1.05f,
+                        0.52f,
+                        0.48f,
+                        70f,
+                        0.28f,
+                        1.45f,
+                        0.14f,
+                        false,
+                        true,
+                        384,
+                        56f,
+                        3.6f,
+                        5,
+                        0.55f,
+                        2.05f,
+                        0.22f,
+                        0.55f,
+                        1.75f);
                     break;
                 default:
-                    Configure(true, 120f, 34f, 16f, 0.46f, 80000, 1.35f, 0.38f, 60f, 0.23f, 1.25f, 0.13f, true);
+                    ConfigureBudget(
+                        true,
+                        18f,
+                        50f,
+                        135f,
+                        8f,
+                        0.44f,
+                        270000,
+                        19000,
+                        29000,
+                        0.98f,
+                        0.5f,
+                        0.38f,
+                        60f,
+                        0.23f,
+                        1.25f,
+                        0.13f,
+                        false,
+                        true,
+                        320,
+                        52f,
+                        4f,
+                        5,
+                        0.54f,
+                        2.05f,
+                        0.23f,
+                        0.56f,
+                        1.7f);
                     break;
             }
         }
@@ -130,15 +367,87 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Config
             drawDistance = Mathf.Max(0f, distance);
             highDetailDistance = Mathf.Clamp(highDistance, 0f, drawDistance);
             chunkSize = Mathf.Max(4f, chunk);
-            placementSpacing = Mathf.Max(0.35f, spacing);
+            placementSpacing = Mathf.Max(0.2f, spacing);
             maxVisibleClumps = Mathf.Max(0, visibleBudget);
             densityScale = Mathf.Clamp(density, 0f, 2f);
+            nearDistance = highDetailDistance;
+            midDistance = Mathf.Clamp(distance, nearDistance, distance);
+            farVisualDistance = drawDistance;
+            maxVisibleNearInstances = Mathf.RoundToInt(maxVisibleClumps * 0.45f);
+            maxVisibleMidInstances = Mathf.Max(0, maxVisibleClumps - maxVisibleNearInstances);
+            maxVisibleGrassTriangles = Mathf.Max(120000, maxVisibleNearInstances * 8 + maxVisibleMidInstances * 4);
+            midDensityMultiplier = 0.62f;
+            enableGrassShadows = shadows;
+            enableTerrainDensityTint = true;
             terrainDetailDensityScale = Mathf.Clamp01(terrainDetailScale);
             terrainDetailFallbackDistance = Mathf.Max(0f, detailFallbackDistance);
             windStrength = Mathf.Clamp(wind, 0f, 2f);
             windSpeed = Mathf.Clamp(speed, 0f, 8f);
             windScale = Mathf.Clamp(scale, 0.01f, 1f);
             receiveShadows = shadows;
+        }
+
+        public void ConfigureBudget(
+            bool isEnabled,
+            float near,
+            float mid,
+            float farVisual,
+            float cluster,
+            float spacing,
+            int triangleBudget,
+            int nearInstanceBudget,
+            int midInstanceBudget,
+            float density,
+            float midDensity,
+            float terrainDetailScale,
+            float detailFallbackDistance,
+            float wind,
+            float speed,
+            float scale,
+            bool grassShadows,
+            bool terrainTint,
+            int densityResolution,
+            float macroScale,
+            float microScale,
+            int octaves,
+            float persistence,
+            float lacunarity,
+            float thresholdLow,
+            float thresholdHigh,
+            float contrast)
+        {
+            enabled = isEnabled;
+            nearDistance = Mathf.Max(0f, near);
+            midDistance = Mathf.Max(nearDistance, mid);
+            farVisualDistance = Mathf.Max(midDistance, farVisual);
+            highDetailDistance = nearDistance;
+            drawDistance = farVisualDistance;
+            chunkSize = Mathf.Max(4f, cluster);
+            placementSpacing = Mathf.Max(0.2f, spacing);
+            maxVisibleGrassTriangles = Mathf.Max(0, triangleBudget);
+            maxVisibleNearInstances = Mathf.Max(0, nearInstanceBudget);
+            maxVisibleMidInstances = Mathf.Max(0, midInstanceBudget);
+            maxVisibleClumps = maxVisibleNearInstances + maxVisibleMidInstances;
+            densityScale = Mathf.Clamp(density, 0f, 2f);
+            midDensityMultiplier = Mathf.Clamp01(midDensity);
+            terrainDetailDensityScale = Mathf.Clamp01(terrainDetailScale);
+            terrainDetailFallbackDistance = Mathf.Max(0f, detailFallbackDistance);
+            windStrength = Mathf.Clamp(wind, 0f, 2f);
+            windSpeed = Mathf.Clamp(speed, 0f, 8f);
+            windScale = Mathf.Clamp(scale, 0.01f, 1f);
+            receiveShadows = true;
+            enableGrassShadows = grassShadows;
+            enableTerrainDensityTint = terrainTint;
+            densityGridResolution = Mathf.Clamp(densityResolution, 32, 1024);
+            macroNoiseScale = Mathf.Max(1f, macroScale);
+            microNoiseScale = Mathf.Max(0.5f, microScale);
+            noiseOctaves = Mathf.Clamp(octaves, 1, 6);
+            noisePersistence = Mathf.Clamp(persistence, 0.1f, 0.9f);
+            noiseLacunarity = Mathf.Clamp(lacunarity, 1.1f, 3f);
+            noiseThresholdLow = Mathf.Clamp01(thresholdLow);
+            noiseThresholdHigh = Mathf.Clamp01(Mathf.Max(noiseThresholdLow, thresholdHigh));
+            noiseContrast = Mathf.Clamp(contrast, 0.25f, 4f);
+            useOptimizedClusterRenderer = true;
         }
     }
 
@@ -224,16 +533,16 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Config
             switch (preset)
             {
                 case ForestQualityLevel.Low:
-                    Configure(24f, 58f, 105f, 125f, 34f, 80, 45, true, true, true, 0.72f);
+                    Configure(28f, 60f, 105f, 125f, 24f, 80, 45, true, true, true, 0.72f);
                     break;
                 case ForestQualityLevel.Medium:
-                    Configure(36f, 80f, 140f, 160f, 50f, 140, 75, true, true, true, 0.88f);
+                    Configure(36f, 82f, 138f, 160f, 30f, 140, 75, true, true, true, 0.88f);
                     break;
                 case ForestQualityLevel.Ultra:
                     Configure(70f, 145f, 220f, 260f, 95f, 360, 180, true, true, true, 1.1f);
                     break;
                 default:
-                    Configure(48f, 105f, 170f, 190f, 62f, 220, 112, true, true, true, 1f);
+                    Configure(48f, 104f, 165f, 185f, 34f, 220, 112, true, true, true, 1f);
                     break;
             }
         }

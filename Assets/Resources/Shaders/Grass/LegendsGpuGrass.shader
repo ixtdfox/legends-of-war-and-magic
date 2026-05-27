@@ -9,7 +9,10 @@ Shader "Legends/Procedural GPU Grass"
         _WindStrength ("Wind Strength", Range(0, 2)) = 0.23
         _WindSpeed ("Wind Speed", Range(0, 8)) = 1.25
         _WindScale ("Wind Scale", Range(0.01, 1)) = 0.13
-        _Cutoff ("Cutoff", Range(0, 1)) = 0.05
+        _WindDirection ("Wind Direction", Vector) = (0.82, 0, 0.57, 0)
+        _AtlasColumns ("Atlas Columns", Float) = 1
+        _AtlasRows ("Atlas Rows", Float) = 1
+        _Cutoff ("Cutoff", Range(0, 1)) = 0.08
     }
 
     SubShader
@@ -48,12 +51,20 @@ Shader "Legends/Procedural GPU Grass"
                 float4 _BaseMap_ST;
                 float4 _BottomColor;
                 float4 _TopColor;
+                float4 _WindDirection;
                 float _Ambient;
                 float _WindStrength;
                 float _WindSpeed;
                 float _WindScale;
+                float _AtlasColumns;
+                float _AtlasRows;
                 float _Cutoff;
             CBUFFER_END
+
+            UNITY_INSTANCING_BUFFER_START(GrassPerInstance)
+                UNITY_DEFINE_INSTANCED_PROP(float4, _GrassTint)
+                UNITY_DEFINE_INSTANCED_PROP(float4, _GrassInstanceData)
+            UNITY_INSTANCING_BUFFER_END(GrassPerInstance)
 
             struct Attributes
             {
@@ -70,8 +81,20 @@ Shader "Legends/Procedural GPU Grass"
                 float3 normalWS : TEXCOORD1;
                 float3 positionWS : TEXCOORD2;
                 float heightMask : TEXCOORD3;
+                float fade : TEXCOORD4;
                 UNITY_VERTEX_INPUT_INSTANCE_ID
             };
+
+            float2 ResolveAtlasUv(float2 uv, float variant)
+            {
+                float columns = max(1.0, floor(_AtlasColumns + 0.5));
+                float rows = max(1.0, floor(_AtlasRows + 0.5));
+                float maxVariant = columns * rows;
+                float index = fmod(max(0.0, floor(variant + 0.5)), maxVariant);
+                float row = floor(index / columns);
+                float column = index - row * columns;
+                return (uv + float2(column, row)) / float2(columns, rows);
+            }
 
             Varyings Vert(Attributes input)
             {
@@ -79,34 +102,55 @@ Shader "Legends/Procedural GPU Grass"
                 UNITY_SETUP_INSTANCE_ID(input);
                 UNITY_TRANSFER_INSTANCE_ID(input, output);
 
+                float4 instanceData = UNITY_ACCESS_INSTANCED_PROP(GrassPerInstance, _GrassInstanceData);
                 float3 positionOS = input.positionOS;
-                float3 basePositionWS = TransformObjectToWorld(float3(0.0, 0.0, 0.0));
-                float heightMask = saturate(max(input.uv.y, positionOS.y * 0.85));
-                float windPhase = _Time.y * _WindSpeed +
-                                  basePositionWS.x * _WindScale +
-                                  basePositionWS.z * (_WindScale * 1.37);
-                float bendMask = heightMask * heightMask;
-                positionOS.x += sin(windPhase) * _WindStrength * bendMask;
-                positionOS.z += cos(windPhase * 0.73) * _WindStrength * 0.35 * bendMask;
+                float3 rootPositionWS = TransformObjectToWorld(float3(0.0, 0.0, 0.0));
+                float heightMask = saturate(max(input.uv.y, positionOS.y));
+                float rootMask = heightMask * heightMask;
+                float phase = _Time.y * _WindSpeed +
+                              rootPositionWS.x * _WindScale +
+                              rootPositionWS.z * (_WindScale * 1.37) +
+                              instanceData.z * 6.2831853;
+                float gust = sin(phase) + 0.35 * cos(phase * 0.73);
+                float2 windDirection = normalize(_WindDirection.xz + float2(0.0001, 0.0002));
+                float bend = gust * _WindStrength * rootMask;
+                positionOS.xz += windDirection * bend;
 
                 output.positionWS = TransformObjectToWorld(positionOS);
                 output.positionCS = TransformWorldToHClip(output.positionWS);
                 output.normalWS = normalize(TransformObjectToWorldNormal(input.normalOS));
-                output.uv = input.uv * _BaseMap_ST.xy + _BaseMap_ST.zw;
+                output.uv = ResolveAtlasUv(input.uv, instanceData.x) * _BaseMap_ST.xy + _BaseMap_ST.zw;
                 output.heightMask = heightMask;
+                output.fade = saturate(instanceData.y);
                 return output;
+            }
+
+            float Hash12(float2 p)
+            {
+                float3 p3 = frac(float3(p.xyx) * 0.1031);
+                p3 += dot(p3, p3.yzx + 33.33);
+                return frac((p3.x + p3.y) * p3.z);
             }
 
             float4 Frag(Varyings input) : SV_Target
             {
                 UNITY_SETUP_INSTANCE_ID(input);
 
-                float4 atlas = SAMPLE_TEXTURE2D(_BaseMap, sampler_BaseMap, input.uv);
-                float maxChannel = max(atlas.r, max(atlas.g, atlas.b));
-                float colorMask = smoothstep(0.06, 0.16, maxChannel);
-                clip(min(atlas.a, colorMask) - _Cutoff);
+                float dither = Hash12(floor(input.positionCS.xy));
+                clip(input.fade - dither * 0.98);
 
-                return float4(atlas.rgb, 1.0);
+                float4 atlas = SAMPLE_TEXTURE2D(_BaseMap, sampler_BaseMap, input.uv);
+                float bladeHalfWidth = lerp(0.46, 0.08, input.heightMask);
+                float bladeMask = 1.0 - smoothstep(bladeHalfWidth * 0.72, bladeHalfWidth, abs(input.uv.x - 0.5));
+                clip(min(atlas.a, bladeMask) - _Cutoff);
+
+                float4 grassTint = UNITY_ACCESS_INSTANCED_PROP(GrassPerInstance, _GrassTint);
+                float3 heightTint = lerp(_BottomColor.rgb, _TopColor.rgb, input.heightMask);
+                float3 tint = lerp(float3(1.0, 1.0, 1.0), max(grassTint.rgb, float3(0.001, 0.001, 0.001)), saturate(grassTint.a));
+                float atlasValue = dot(atlas.rgb, float3(0.299, 0.587, 0.114));
+                float3 color = heightTint * tint * lerp(0.82, 1.12, saturate(atlasValue));
+                color = lerp(color * _Ambient, color, saturate(input.heightMask * 0.65 + 0.25));
+                return float4(color, 1.0);
             }
             ENDHLSL
         }

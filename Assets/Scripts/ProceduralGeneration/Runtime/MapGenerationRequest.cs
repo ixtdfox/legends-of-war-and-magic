@@ -47,7 +47,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Runtime
         public PropDensityOption PropDensity { get; set; } = PropDensityOption.Normal;
         public float TreeDensity { get; set; } = 0.72f;
         public float GrassSaturation { get; set; } = 0.8f;
-        public float GrassHighDetailDistance { get; set; } = 34f;
+        public float GrassHighDetailDistance { get; set; } = 18f;
         public float GrassDrawDistance { get; set; } = 120f;
         public string SeedText { get; set; } = string.Empty;
 

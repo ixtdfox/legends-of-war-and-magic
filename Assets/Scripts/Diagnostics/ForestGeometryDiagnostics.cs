@@ -68,6 +68,40 @@ namespace LegendsOfWarAndMagic.Diagnostics
                 snapshot.AddRenderer(record);
             }
 
+            var terrains = Object.FindObjectsByType<Terrain>(FindObjectsInactive.Exclude, FindObjectsSortMode.None);
+            for (var i = 0; i < terrains.Length; i++)
+            {
+                var terrain = terrains[i];
+                if (terrain == null || !terrain.enabled || !terrain.gameObject.activeInHierarchy || terrain.terrainData == null)
+                {
+                    continue;
+                }
+
+                var bounds = ResolveTerrainBounds(terrain);
+                var distanceSqr = hasCamera
+                    ? (bounds.center - cameraPosition).sqrMagnitude
+                    : 0f;
+                var insideDistance = !hasCamera || distanceSqr <= maxDistanceSqr;
+                var insideFrustum = !hasCamera || !frustumOnly || GeometryUtility.TestPlanesAABB(planes, bounds);
+                var visible = insideDistance && insideFrustum;
+                if (!visible)
+                {
+                    continue;
+                }
+
+                var terrainData = terrain.terrainData;
+                var record = new ForestTerrainRecord(
+                    terrain.name,
+                    terrainData.name,
+                    terrainData.heightmapResolution,
+                    terrainData.size,
+                    terrain.heightmapPixelError,
+                    CountTerrainVertices(terrainData),
+                    CountTerrainTriangles(terrainData),
+                    terrain.shadowCastingMode);
+                snapshot.AddTerrain(record);
+            }
+
             var instancedRenderers = Object.FindObjectsByType<GeneratedInstancedPropRenderer>(FindObjectsInactive.Exclude, FindObjectsSortMode.None);
             for (var i = 0; i < instancedRenderers.Length; i++)
             {
@@ -115,6 +149,7 @@ namespace LegendsOfWarAndMagic.Diagnostics
             sb.AppendLine($"- Max distance: {(snapshot.MaxDistance > 0f ? snapshot.MaxDistance.ToString("0.##") : "unlimited")}");
             sb.AppendLine($"- Frustum only: {snapshot.FrustumOnly}");
             sb.AppendLine($"- Visible renderer records: {snapshot.RendererRecords.Count}");
+            sb.AppendLine($"- Visible terrain records: {snapshot.TerrainRecords.Count}");
             sb.AppendLine($"- Instanced draw groups: {snapshot.InstancedRecords.Count}");
             sb.AppendLine($"- GPU grass records: {snapshot.GpuGrassRecords.Count}");
             sb.AppendLine($"- Visible triangles: {snapshot.VisibleTriangles:N0}");
@@ -152,12 +187,12 @@ namespace LegendsOfWarAndMagic.Diagnostics
             sb.AppendLine();
             sb.AppendLine("## GPU Grass");
             sb.AppendLine();
-            sb.AppendLine("| LOD | Visible clumps | Tris per clump | Verts per clump | Visible tris | Visible verts | Estimated batches |");
-            sb.AppendLine("|---|---:|---:|---:|---:|---:|---:|");
+            sb.AppendLine("| LOD | Visible clusters | Visible clumps | Tris per clump | Verts per clump | Visible tris | Visible verts | Estimated batches | Material buckets | Runtime generated | Shadow casters | Cull ms | Build ms |");
+            sb.AppendLine("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|");
             for (var i = 0; i < snapshot.GpuGrassRecords.Count; i++)
             {
                 var record = snapshot.GpuGrassRecords[i];
-                sb.AppendLine($"| {Escape(record.LodName)} | {record.VisibleClumps:N0} | {record.TrianglesPerClump:N0} | {record.VerticesPerClump:N0} | {record.VisibleTriangles:N0} | {record.VisibleVertices:N0} | {record.EstimatedBatches:N0} |");
+                sb.AppendLine($"| {Escape(record.LodName)} | {record.VisibleClusters:N0} | {record.VisibleClumps:N0} | {record.TrianglesPerClump:N0} | {record.VerticesPerClump:N0} | {record.VisibleTriangles:N0} | {record.VisibleVertices:N0} | {record.EstimatedBatches:N0} | {record.MaterialBuckets:N0} | {record.RuntimeGeneratedInRender:N0} | {record.ShadowCasterInstances:N0} | {record.CullingMilliseconds:0.###} | {record.BuildMilliseconds:0.###} |");
             }
 
             return sb.ToString();
@@ -210,6 +245,35 @@ namespace LegendsOfWarAndMagic.Diagnostics
             }
 
             return triangles;
+        }
+
+        private static Bounds ResolveTerrainBounds(Terrain terrain)
+        {
+            var data = terrain.terrainData;
+            var size = data != null ? data.size : Vector3.zero;
+            return new Bounds(terrain.transform.position + size * 0.5f, size);
+        }
+
+        private static int CountTerrainVertices(TerrainData terrainData)
+        {
+            if (terrainData == null)
+            {
+                return 0;
+            }
+
+            var resolution = Mathf.Max(0, terrainData.heightmapResolution);
+            return (int)Math.Min(int.MaxValue, (long)resolution * resolution);
+        }
+
+        private static int CountTerrainTriangles(TerrainData terrainData)
+        {
+            if (terrainData == null)
+            {
+                return 0;
+            }
+
+            var quads = Mathf.Max(0, terrainData.heightmapResolution - 1);
+            return (int)Math.Min(int.MaxValue, (long)quads * quads * 2L);
         }
 
         private static string ResolveMaterialNames(Renderer renderer)
@@ -333,6 +397,7 @@ namespace LegendsOfWarAndMagic.Diagnostics
         public float MaxDistance { get; }
         public bool FrustumOnly { get; }
         public List<ForestRendererRecord> RendererRecords { get; } = new();
+        public List<ForestTerrainRecord> TerrainRecords { get; } = new();
         public List<GeneratedInstancedPropRenderer.GeneratedInstancedPropDiagnostic> InstancedRecords { get; } = new();
         public List<GeneratedGpuGrassRenderer.GpuGrassDiagnostic> GpuGrassRecords { get; } = new();
         public List<ForestGeometryGroup> Groups { get; } = new();
@@ -361,6 +426,29 @@ namespace LegendsOfWarAndMagic.Diagnostics
                 record.HasLodGroup ? $"configured {record.ConfiguredLodIndex}, estimated {record.EstimatedLodIndex}" : "none",
                 record.ShadowCastingMode.ToString(),
                 record.HasLodGroup ? "LODGroup" : "No LODGroup");
+        }
+
+        public void AddTerrain(ForestTerrainRecord record)
+        {
+            TerrainRecords.Add(record);
+            VisibleTriangles += record.TriangleCount;
+            VisibleVertices += record.VertexCount;
+            if (record.ShadowCastingMode != ShadowCastingMode.Off)
+            {
+                ShadowCastingRecordCount++;
+            }
+
+            var displayName = string.IsNullOrWhiteSpace(record.DataName)
+                ? record.ObjectName
+                : $"{record.ObjectName} / {record.DataName}";
+            var key = $"Terrain|{record.ObjectName}|{record.DataName}|{record.HeightmapResolution}|{record.ShadowCastingMode}";
+            var group = GetOrCreateGroup(key, "Terrain", displayName, record.TriangleCount, record.VertexCount);
+            group.Add(
+                record.TriangleCount,
+                record.VertexCount,
+                $"heightmap {record.HeightmapResolution}",
+                record.ShadowCastingMode.ToString(),
+                $"Terrain estimated source mesh, pixel error {record.HeightmapPixelError:0.##}, size {record.Size.x:0.#}x{record.Size.z:0.#}");
         }
 
         public void AddInstanced(GeneratedInstancedPropRenderer.GeneratedInstancedPropDiagnostic record)
@@ -397,8 +485,8 @@ namespace LegendsOfWarAndMagic.Diagnostics
                 record.VisibleTriangles,
                 record.VisibleVertices,
                 record.LodName,
-                "Off",
-                $"Chunked GPU instanced grass, estimated batches {record.EstimatedBatches}");
+                record.ShadowCasterInstances > 0 ? "Near only" : "Off",
+                $"Clustered GPU grass, clusters {record.VisibleClusters}, batches {record.EstimatedBatches}, material buckets {record.MaterialBuckets}, runtime generation {record.RuntimeGeneratedInRender}");
             group.SetCount(record.VisibleClumps);
         }
 
@@ -480,6 +568,38 @@ namespace LegendsOfWarAndMagic.Diagnostics
         public int ConfiguredLodIndex { get; }
         public int EstimatedLodIndex { get; }
         public string SourceType { get; }
+    }
+
+    public readonly struct ForestTerrainRecord
+    {
+        public ForestTerrainRecord(
+            string objectName,
+            string dataName,
+            int heightmapResolution,
+            Vector3 size,
+            float heightmapPixelError,
+            int vertexCount,
+            int triangleCount,
+            ShadowCastingMode shadowCastingMode)
+        {
+            ObjectName = objectName;
+            DataName = dataName;
+            HeightmapResolution = heightmapResolution;
+            Size = size;
+            HeightmapPixelError = heightmapPixelError;
+            VertexCount = vertexCount;
+            TriangleCount = triangleCount;
+            ShadowCastingMode = shadowCastingMode;
+        }
+
+        public string ObjectName { get; }
+        public string DataName { get; }
+        public int HeightmapResolution { get; }
+        public Vector3 Size { get; }
+        public float HeightmapPixelError { get; }
+        public int VertexCount { get; }
+        public int TriangleCount { get; }
+        public ShadowCastingMode ShadowCastingMode { get; }
     }
 
     public sealed class ForestGeometryGroup

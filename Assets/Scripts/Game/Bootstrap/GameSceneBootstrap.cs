@@ -1,3 +1,4 @@
+using LegendsOfWarAndMagic.Diagnostics;
 using LegendsOfWarAndMagic.Game.Player;
 using LegendsOfWarAndMagic.ProceduralGeneration;
 using LegendsOfWarAndMagic.ProceduralGeneration.Config;
@@ -26,7 +27,8 @@ namespace LegendsOfWarAndMagic.Game.Bootstrap
 
             var spawnPoint = FindSafeSpawnPoint(generator.GeneratedTerrain, mappedSettings.Settings);
             var player = CreatePlayer(spawnPoint);
-            CreateFirstPersonCamera(player);
+            var camera = CreateFirstPersonCamera(player);
+            RuntimeGeometryDebugPanel.Ensure(camera);
 
             Debug.Log($"GameScene ready. Request={mappedSettings.Summary}. Spawn={spawnPoint}. {generator.LastGenerationSummary}");
         }
@@ -146,7 +148,7 @@ namespace LegendsOfWarAndMagic.Game.Bootstrap
             return player;
         }
 
-        private static void CreateFirstPersonCamera(GameObject player)
+        private static UnityEngine.Camera CreateFirstPersonCamera(GameObject player)
         {
             var existingCamera = UnityEngine.Camera.main != null
                 ? UnityEngine.Camera.main
@@ -182,6 +184,8 @@ namespace LegendsOfWarAndMagic.Game.Bootstrap
             {
                 playerController.SetViewCamera(cameraObject.transform);
             }
+
+            return camera;
         }
 
         private static void EnsureLighting()

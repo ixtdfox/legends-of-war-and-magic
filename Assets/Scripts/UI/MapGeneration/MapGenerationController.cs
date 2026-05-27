@@ -11,10 +11,10 @@ namespace LegendsOfWarAndMagic.UI.MapGeneration
     [DisallowMultipleComponent]
     public sealed class MapGenerationController : MonoBehaviour
     {
-        private const float GrassHighLodMin = 8f;
-        private const float GrassHighLodMax = 80f;
-        private const float GrassDrawDistanceMin = 45f;
-        private const float GrassDrawDistanceMax = 180f;
+        private const float GrassHighLodMin = 10f;
+        private const float GrassHighLodMax = 18f;
+        private const float GrassDrawDistanceMin = 60f;
+        private const float GrassDrawDistanceMax = 140f;
 
         private readonly System.Random seedRandom = new();
 
@@ -25,7 +25,7 @@ namespace LegendsOfWarAndMagic.UI.MapGeneration
         private PropDensityOption selectedPropDensity = PropDensityOption.Normal;
         private float selectedTreeDensity = 0.72f;
         private float selectedGrassSaturation = 0.8f;
-        private float selectedGrassHighDetailDistance = 34f;
+        private float selectedGrassHighDetailDistance = 18f;
         private float selectedGrassDrawDistance = 120f;
 
         private Button[] sizeButtons;
@@ -293,7 +293,7 @@ namespace LegendsOfWarAndMagic.UI.MapGeneration
                 return;
             }
 
-            grassHighLodValue.text = $"LOD0 {value:0} м";
+            grassHighLodValue.text = $"Near {value:0} м";
         }
 
         private void UpdateGrassDrawDistanceLabel(float value)
@@ -303,7 +303,7 @@ namespace LegendsOfWarAndMagic.UI.MapGeneration
                 return;
             }
 
-            grassDrawDistanceValue.text = $"Cull {value:0} м";
+            grassDrawDistanceValue.text = $"Far tint {value:0} м";
         }
 
         private void BackToMainMenu()

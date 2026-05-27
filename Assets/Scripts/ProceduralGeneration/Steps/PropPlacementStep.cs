@@ -52,6 +52,11 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
             FootprintGrid2D footprintGrid,
             System.Random random)
         {
+            if (context.Settings.GpuGrassSettings.Enabled && category != null && category.Role == ProceduralPropRole.GroundGrass)
+            {
+                return;
+            }
+
             if (category == null || !category.Enabled || category.Prefabs == null || category.Prefabs.Length == 0 || category.DensityPer10kSqm <= 0f)
             {
                 if (category != null && category.Enabled && category.DensityPer10kSqm > 0f && (category.Prefabs == null || category.Prefabs.Length == 0))
@@ -154,6 +159,10 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                 var instance = canRenderInstanced
                     ? CreateLightweightInstance(prefab, categoryRoot, spawnPoint, rotationY, uniformScale, accepted + 1)
                     : CreatePrefabInstance(prefab, categoryRoot, spawnPoint, rotationY, uniformScale, accepted + 1);
+                if (canRenderInstanced)
+                {
+                    instance.AddComponent<GeneratedInstancedPropInstance>().Initialize(prefab, category.Role, category.MaxDrawDistance);
+                }
 
                 var footprint = canRenderInstanced
                     ? ResolveFootprint(instance.transform, category, prefabLocalBounds)
