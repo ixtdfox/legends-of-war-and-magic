@@ -57,6 +57,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Runtime
                 landPreset.FalloffStrength);
             settings.ConfigureWater(true, waterPreset.Level, sizePreset.WaterPadding, waterPreset.Color);
             settings.ConfigureForestRendering(ResolveForestQuality(safeRequest.PropDensity, safeRequest.TreeDensity));
+            settings.ConfigureGpuGrass(BuildGpuGrassSettings(settings.GpuGrassSettings, safeRequest));
             settings.ConfigureProps(true, BuildPropCategories(settings, safeRequest.PropDensity, safeRequest.TreeDensity, settings.AssetCatalog));
             settings.ConfigureTerrainDetails(
                 true,
@@ -67,6 +68,36 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Runtime
                 64);
 
             return new Result(settings, seed, safeRequest.BuildSummary(seed));
+        }
+
+        private static GpuGrassSettings BuildGpuGrassSettings(GpuGrassSettings source, MapGenerationRequest request)
+        {
+            var settings = source != null
+                ? source.Clone()
+                : GpuGrassSettings.CreatePreset(ForestQualityLevel.High);
+            var saturation = Mathf.Clamp01(request.GrassSaturation);
+            var highDistance = Mathf.Clamp(request.GrassHighDetailDistance, 8f, 80f);
+            var drawDistance = Mathf.Clamp(request.GrassDrawDistance, highDistance + 12f, 180f);
+            var chunkSize = Mathf.Clamp(settings.ChunkSize, 8f, 24f);
+            var spacing = Mathf.Lerp(0.95f, 0.38f, saturation);
+            var visibleBudget = Mathf.RoundToInt(Mathf.Lerp(12000f, 120000f, saturation));
+            var densityScale = Mathf.Lerp(0.25f, 1.55f, saturation);
+
+            settings.Configure(
+                settings.Enabled,
+                drawDistance,
+                highDistance,
+                chunkSize,
+                spacing,
+                visibleBudget,
+                densityScale,
+                settings.TerrainDetailDensityScale,
+                settings.TerrainDetailFallbackDistance,
+                settings.WindStrength,
+                settings.WindSpeed,
+                settings.WindScale,
+                settings.ReceiveShadows);
+            return settings;
         }
 
         private static ProceduralLocationSettings CreateRuntimeSettings()

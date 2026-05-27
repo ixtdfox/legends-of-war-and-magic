@@ -351,5 +351,15 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Config
                 gpuGrassSettings = GpuGrassSettings.CreatePreset(preset);
             }
         }
+
+        public void ConfigureGpuGrass(GpuGrassSettings settings)
+        {
+            usePresetValues = false;
+            gpuGrassSettings = settings != null
+                ? settings.Clone()
+                : GpuGrassSettings.CreatePreset(qualityPreset);
+
+            customLodSettings ??= ForestLodSettings.CreatePreset(qualityPreset);
+        }
     }
 }

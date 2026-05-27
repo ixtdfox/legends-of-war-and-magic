@@ -387,6 +387,11 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Config
             forestRendering.Configure(qualityPreset, usePresetValues);
         }
 
+        public void ConfigureGpuGrass(GpuGrassSettings settings)
+        {
+            forestRendering.ConfigureGpuGrass(settings);
+        }
+
         public Bounds GetWorldBounds()
         {
             var center = Vector3.zero;

@@ -11,6 +11,11 @@ namespace LegendsOfWarAndMagic.UI.MapGeneration
     [DisallowMultipleComponent]
     public sealed class MapGenerationController : MonoBehaviour
     {
+        private const float GrassHighLodMin = 8f;
+        private const float GrassHighLodMax = 80f;
+        private const float GrassDrawDistanceMin = 45f;
+        private const float GrassDrawDistanceMax = 180f;
+
         private readonly System.Random seedRandom = new();
 
         private MapSizeOption selectedSize = MapSizeOption.Medium;
@@ -19,6 +24,9 @@ namespace LegendsOfWarAndMagic.UI.MapGeneration
         private ReliefOption selectedRelief = ReliefOption.Hills;
         private PropDensityOption selectedPropDensity = PropDensityOption.Normal;
         private float selectedTreeDensity = 0.72f;
+        private float selectedGrassSaturation = 0.8f;
+        private float selectedGrassHighDetailDistance = 34f;
+        private float selectedGrassDrawDistance = 120f;
 
         private Button[] sizeButtons;
         private Button[] landButtons;
@@ -27,6 +35,9 @@ namespace LegendsOfWarAndMagic.UI.MapGeneration
         private Button[] propButtons;
         private InputField seedInput;
         private Text treeDensityValue;
+        private Text grassSaturationValue;
+        private Text grassHighLodValue;
+        private Text grassDrawDistanceValue;
 
         private void Awake()
         {
@@ -45,7 +56,7 @@ namespace LegendsOfWarAndMagic.UI.MapGeneration
             panelRect.anchorMax = new Vector2(0.5f, 0.5f);
             panelRect.pivot = new Vector2(0.5f, 0.5f);
             panelRect.anchoredPosition = Vector2.zero;
-            panelRect.sizeDelta = new Vector2(1240f, 1000f);
+            panelRect.sizeDelta = new Vector2(1240f, 1080f);
             RuntimeUiFactory.AddVerticalLayout(panel, 12f, new RectOffset(44, 44, 28, 28), TextAnchor.UpperCenter);
 
             var title = RuntimeUiFactory.CreateText(panel.transform, "Title", "Новая карта", 54, new Color(0.98f, 0.86f, 0.55f, 1f), TextAnchor.MiddleCenter, FontStyle.Bold);
@@ -82,6 +93,7 @@ namespace LegendsOfWarAndMagic.UI.MapGeneration
             });
 
             CreateTreeDensityRow(panel.transform);
+            CreateGrassSettingsSection(panel.transform);
             CreateSeedRow(panel.transform);
             CreateNavigationRow(panel.transform);
 
@@ -91,6 +103,9 @@ namespace LegendsOfWarAndMagic.UI.MapGeneration
             UpdateSelected(reliefButtons, (int)selectedRelief);
             UpdateSelected(propButtons, (int)selectedPropDensity);
             UpdateTreeDensityLabel(selectedTreeDensity);
+            UpdateGrassSaturationLabel(selectedGrassSaturation);
+            UpdateGrassHighLodLabel(selectedGrassHighDetailDistance);
+            UpdateGrassDrawDistanceLabel(selectedGrassDrawDistance);
         }
 
         private Button[] CreateOptionRow(Transform parent, string title, string[] labels, Action<int> onSelected)
@@ -129,6 +144,47 @@ namespace LegendsOfWarAndMagic.UI.MapGeneration
 
             treeDensityValue = RuntimeUiFactory.CreateText(section.transform, "Tree Density Value", string.Empty, 26, new Color(0.95f, 0.90f, 0.72f, 1f), TextAnchor.MiddleCenter, FontStyle.Bold);
             RuntimeUiFactory.AddLayoutElement(treeDensityValue.gameObject, 220f, 58f);
+        }
+
+        private void CreateGrassSettingsSection(Transform parent)
+        {
+            var section = RuntimeUiFactory.CreateUiObject(parent, "Grass Settings Section");
+            var image = section.AddComponent<Image>();
+            image.color = new Color(0.095f, 0.105f, 0.09f, 0.88f);
+            RuntimeUiFactory.AddLayoutElement(section, 0f, 176f);
+            RuntimeUiFactory.AddVerticalLayout(section, 8f, new RectOffset(24, 24, 8, 8), TextAnchor.MiddleCenter);
+
+            grassSaturationValue = CreateGrassSliderRow(
+                section.transform,
+                "Насыщенность травы",
+                selectedGrassSaturation,
+                OnGrassSaturationChanged);
+            grassHighLodValue = CreateGrassSliderRow(
+                section.transform,
+                "LOD0 травы",
+                Mathf.InverseLerp(GrassHighLodMin, GrassHighLodMax, selectedGrassHighDetailDistance),
+                OnGrassHighLodChanged);
+            grassDrawDistanceValue = CreateGrassSliderRow(
+                section.transform,
+                "Дальность травы",
+                Mathf.InverseLerp(GrassDrawDistanceMin, GrassDrawDistanceMax, selectedGrassDrawDistance),
+                OnGrassDrawDistanceChanged);
+        }
+
+        private Text CreateGrassSliderRow(Transform parent, string labelText, float sliderValue, UnityEngine.Events.UnityAction<float> onChanged)
+        {
+            var row = RuntimeUiFactory.CreateUiObject(parent, $"{labelText} Row");
+            RuntimeUiFactory.AddLayoutElement(row, 0f, 48f);
+            RuntimeUiFactory.AddHorizontalLayout(row, 14f, new RectOffset(0, 0, 0, 0), TextAnchor.MiddleCenter);
+
+            var label = RuntimeUiFactory.CreateText(row.transform, $"{labelText} Label", labelText, 24, new Color(0.92f, 0.86f, 0.68f, 1f), TextAnchor.MiddleLeft, FontStyle.Bold);
+            RuntimeUiFactory.AddLayoutElement(label.gameObject, 300f, 46f);
+
+            RuntimeUiFactory.CreateSlider(row.transform, $"{labelText} Slider", sliderValue, onChanged, new Vector2(560f, 46f));
+
+            var value = RuntimeUiFactory.CreateText(row.transform, $"{labelText} Value", string.Empty, 22, new Color(0.95f, 0.90f, 0.72f, 1f), TextAnchor.MiddleCenter, FontStyle.Bold);
+            RuntimeUiFactory.AddLayoutElement(value.gameObject, 230f, 46f);
+            return value;
         }
 
         private void CreateSeedRow(Transform parent)
@@ -196,6 +252,60 @@ namespace LegendsOfWarAndMagic.UI.MapGeneration
             };
         }
 
+        private void OnGrassSaturationChanged(float value)
+        {
+            selectedGrassSaturation = Mathf.Clamp01(value);
+            UpdateGrassSaturationLabel(selectedGrassSaturation);
+        }
+
+        private void OnGrassHighLodChanged(float value)
+        {
+            selectedGrassHighDetailDistance = Mathf.Lerp(GrassHighLodMin, GrassHighLodMax, Mathf.Clamp01(value));
+            UpdateGrassHighLodLabel(selectedGrassHighDetailDistance);
+        }
+
+        private void OnGrassDrawDistanceChanged(float value)
+        {
+            selectedGrassDrawDistance = Mathf.Lerp(GrassDrawDistanceMin, GrassDrawDistanceMax, Mathf.Clamp01(value));
+            UpdateGrassDrawDistanceLabel(selectedGrassDrawDistance);
+        }
+
+        private void UpdateGrassSaturationLabel(float value)
+        {
+            if (grassSaturationValue == null)
+            {
+                return;
+            }
+
+            grassSaturationValue.text = value switch
+            {
+                < 0.25f => "Редкая",
+                < 0.55f => "Нормальная",
+                < 0.85f => "Густая",
+                _ => "Сплошная"
+            };
+        }
+
+        private void UpdateGrassHighLodLabel(float value)
+        {
+            if (grassHighLodValue == null)
+            {
+                return;
+            }
+
+            grassHighLodValue.text = $"LOD0 {value:0} м";
+        }
+
+        private void UpdateGrassDrawDistanceLabel(float value)
+        {
+            if (grassDrawDistanceValue == null)
+            {
+                return;
+            }
+
+            grassDrawDistanceValue.text = $"Cull {value:0} м";
+        }
+
         private void BackToMainMenu()
         {
             SceneManager.LoadScene(SceneNames.MainMenuScene);
@@ -203,6 +313,7 @@ namespace LegendsOfWarAndMagic.UI.MapGeneration
 
         private void StartGame()
         {
+            var grassDrawDistance = Mathf.Max(selectedGrassDrawDistance, selectedGrassHighDetailDistance + 12f);
             var request = new MapGenerationRequest
             {
                 MapSize = selectedSize,
@@ -211,6 +322,9 @@ namespace LegendsOfWarAndMagic.UI.MapGeneration
                 Relief = selectedRelief,
                 PropDensity = selectedPropDensity,
                 TreeDensity = selectedTreeDensity,
+                GrassSaturation = selectedGrassSaturation,
+                GrassHighDetailDistance = selectedGrassHighDetailDistance,
+                GrassDrawDistance = grassDrawDistance,
                 SeedText = seedInput != null ? seedInput.text : string.Empty
             };
 
