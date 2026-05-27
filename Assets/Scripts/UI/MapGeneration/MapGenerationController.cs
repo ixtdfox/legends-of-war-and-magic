@@ -24,7 +24,7 @@ namespace LegendsOfWarAndMagic.UI.MapGeneration
         private ReliefOption selectedRelief = ReliefOption.Hills;
         private PropDensityOption selectedPropDensity = PropDensityOption.Normal;
         private float selectedTreeDensity = 0.72f;
-        private float selectedGrassSaturation = 0.8f;
+        private float selectedGrassSaturation = 0.95f;
         private float selectedGrassHighDetailDistance = 18f;
         private float selectedGrassDrawDistance = 120f;
 
@@ -56,45 +56,47 @@ namespace LegendsOfWarAndMagic.UI.MapGeneration
             panelRect.anchorMax = new Vector2(0.5f, 0.5f);
             panelRect.pivot = new Vector2(0.5f, 0.5f);
             panelRect.anchoredPosition = Vector2.zero;
-            panelRect.sizeDelta = new Vector2(1240f, 1080f);
+            panelRect.sizeDelta = new Vector2(1240f, 1010f);
             RuntimeUiFactory.AddVerticalLayout(panel, 12f, new RectOffset(44, 44, 28, 28), TextAnchor.UpperCenter);
 
             var title = RuntimeUiFactory.CreateText(panel.transform, "Title", "Новая карта", 54, new Color(0.98f, 0.86f, 0.55f, 1f), TextAnchor.MiddleCenter, FontStyle.Bold);
             RuntimeUiFactory.AddLayoutElement(title.gameObject, 0f, 62f);
 
-            sizeButtons = CreateOptionRow(panel.transform, "Размер карты", new[] { "Маленькая", "Средняя", "Большая" }, (index) =>
+            var scrollContent = CreateScrollableContent(panel.transform);
+
+            sizeButtons = CreateOptionRow(scrollContent, "Размер карты", new[] { "Маленькая", "Средняя", "Большая" }, (index) =>
             {
                 selectedSize = (MapSizeOption)index;
                 UpdateSelected(sizeButtons, index);
             });
 
-            landButtons = CreateOptionRow(panel.transform, "Тип суши", new[] { "Материк", "Острова", "Архипелаг" }, (index) =>
+            landButtons = CreateOptionRow(scrollContent, "Тип суши", new[] { "Материк", "Острова", "Архипелаг" }, (index) =>
             {
                 selectedLandType = (LandTypeOption)index;
                 UpdateSelected(landButtons, index);
             });
 
-            waterButtons = CreateOptionRow(panel.transform, "Количество воды", new[] { "Мало воды", "Нормально", "Много воды" }, (index) =>
+            waterButtons = CreateOptionRow(scrollContent, "Количество воды", new[] { "Мало воды", "Нормально", "Много воды" }, (index) =>
             {
                 selectedWaterAmount = (WaterAmountOption)index;
                 UpdateSelected(waterButtons, index);
             });
 
-            reliefButtons = CreateOptionRow(panel.transform, "Рельеф", new[] { "Равнинный", "Холмистый", "Горный" }, (index) =>
+            reliefButtons = CreateOptionRow(scrollContent, "Рельеф", new[] { "Равнинный", "Холмистый", "Горный" }, (index) =>
             {
                 selectedRelief = (ReliefOption)index;
                 UpdateSelected(reliefButtons, index);
             });
 
-            propButtons = CreateOptionRow(panel.transform, "Леса и пропсы", new[] { "Мало", "Нормально", "Много" }, (index) =>
+            propButtons = CreateOptionRow(scrollContent, "Леса и пропсы", new[] { "Мало", "Нормально", "Много" }, (index) =>
             {
                 selectedPropDensity = (PropDensityOption)index;
                 UpdateSelected(propButtons, index);
             });
 
-            CreateTreeDensityRow(panel.transform);
-            CreateGrassSettingsSection(panel.transform);
-            CreateSeedRow(panel.transform);
+            CreateTreeDensityRow(scrollContent);
+            CreateGrassSettingsSection(scrollContent);
+            CreateSeedRow(scrollContent);
             CreateNavigationRow(panel.transform);
 
             UpdateSelected(sizeButtons, (int)selectedSize);
@@ -106,6 +108,62 @@ namespace LegendsOfWarAndMagic.UI.MapGeneration
             UpdateGrassSaturationLabel(selectedGrassSaturation);
             UpdateGrassHighLodLabel(selectedGrassHighDetailDistance);
             UpdateGrassDrawDistanceLabel(selectedGrassDrawDistance);
+        }
+
+        private Transform CreateScrollableContent(Transform parent)
+        {
+            var scrollRoot = RuntimeUiFactory.CreateUiObject(parent, "Generator Scroll Root");
+            var scrollRootRect = scrollRoot.GetComponent<RectTransform>();
+            scrollRootRect.sizeDelta = new Vector2(0f, 742f);
+            RuntimeUiFactory.AddLayoutElement(scrollRoot, 0f, 742f);
+
+            var viewport = RuntimeUiFactory.CreateUiObject(scrollRoot.transform, "Generator Scroll Viewport");
+            RuntimeUiFactory.Stretch(viewport.gameObject, new Vector2(0f, 0f), new Vector2(-24f, 0f));
+            viewport.AddComponent<RectMask2D>();
+
+            var content = RuntimeUiFactory.CreateUiObject(viewport.transform, "Generator Scroll Content");
+            var contentRect = content.GetComponent<RectTransform>();
+            contentRect.anchorMin = new Vector2(0f, 1f);
+            contentRect.anchorMax = new Vector2(1f, 1f);
+            contentRect.pivot = new Vector2(0.5f, 1f);
+            contentRect.anchoredPosition = Vector2.zero;
+            contentRect.sizeDelta = Vector2.zero;
+            RuntimeUiFactory.AddVerticalLayout(content, 12f, new RectOffset(0, 8, 0, 0), TextAnchor.UpperCenter);
+            var fitter = content.AddComponent<ContentSizeFitter>();
+            fitter.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+
+            var scrollbar = CreateScrollbar(scrollRoot.transform);
+            var scrollRect = scrollRoot.AddComponent<ScrollRect>();
+            scrollRect.content = contentRect;
+            scrollRect.viewport = viewport.GetComponent<RectTransform>();
+            scrollRect.horizontal = false;
+            scrollRect.vertical = true;
+            scrollRect.movementType = ScrollRect.MovementType.Clamped;
+            scrollRect.scrollSensitivity = 48f;
+            scrollRect.verticalScrollbar = scrollbar;
+            scrollRect.verticalScrollbarVisibility = ScrollRect.ScrollbarVisibility.AutoHideAndExpandViewport;
+            scrollRect.verticalScrollbarSpacing = 4f;
+            return content.transform;
+        }
+
+        private Scrollbar CreateScrollbar(Transform parent)
+        {
+            var scrollbarImage = RuntimeUiFactory.CreateImage(parent, "Generator Scrollbar", new Color(0.10f, 0.12f, 0.10f, 0.92f));
+            var scrollbarRect = scrollbarImage.GetComponent<RectTransform>();
+            scrollbarRect.anchorMin = new Vector2(1f, 0f);
+            scrollbarRect.anchorMax = new Vector2(1f, 1f);
+            scrollbarRect.pivot = new Vector2(1f, 0.5f);
+            scrollbarRect.offsetMin = new Vector2(-16f, 0f);
+            scrollbarRect.offsetMax = Vector2.zero;
+
+            var handle = RuntimeUiFactory.CreateImage(scrollbarImage.transform, "Handle", new Color(0.78f, 0.64f, 0.28f, 0.98f));
+            RuntimeUiFactory.Stretch(handle.gameObject, Vector2.zero, Vector2.zero);
+
+            var scrollbar = scrollbarImage.gameObject.AddComponent<Scrollbar>();
+            scrollbar.direction = Scrollbar.Direction.BottomToTop;
+            scrollbar.targetGraphic = handle;
+            scrollbar.handleRect = handle.GetComponent<RectTransform>();
+            return scrollbar;
         }
 
         private Button[] CreateOptionRow(Transform parent, string title, string[] labels, Action<int> onSelected)

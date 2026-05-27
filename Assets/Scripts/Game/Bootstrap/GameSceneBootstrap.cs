@@ -29,6 +29,7 @@ namespace LegendsOfWarAndMagic.Game.Bootstrap
             var player = CreatePlayer(spawnPoint);
             var camera = CreateFirstPersonCamera(player);
             RuntimeGeometryDebugPanel.Ensure(camera);
+            RuntimeGraphicsSettingsPanel.Ensure(camera);
 
             Debug.Log($"GameScene ready. Request={mappedSettings.Summary}. Spawn={spawnPoint}. {generator.LastGenerationSummary}");
         }

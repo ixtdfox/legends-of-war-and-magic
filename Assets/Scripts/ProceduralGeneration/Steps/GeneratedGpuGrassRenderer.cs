@@ -21,8 +21,6 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
         private const int ShoreLayer = 0;
         private const int RockLayer = 3;
         private const int HardVisibleGrassTriangleLimit = 300000;
-        private const int NearBladeCount = 4;
-        private const int MidBladeCount = 2;
 
         private static readonly int GrassTintId = Shader.PropertyToID("_GrassTint");
         private static readonly int GrassInstanceDataId = Shader.PropertyToID("_GrassInstanceData");
@@ -36,6 +34,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
         private static readonly int MainTexId = Shader.PropertyToID("_MainTex");
         private static readonly int BottomColorId = Shader.PropertyToID("_BottomColor");
         private static readonly int TopColorId = Shader.PropertyToID("_TopColor");
+        private static readonly int AmbientId = Shader.PropertyToID("_Ambient");
         private static readonly int CutoffId = Shader.PropertyToID("_Cutoff");
 
         [SerializeField] private Terrain targetTerrain;
@@ -65,6 +64,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
         private float[] densityValues = Array.Empty<float>();
         private Texture2D densityDebugTexture;
         private float[,,] alphamaps;
+        private float[,,] sourceAlphamaps;
         private int densityResolution;
         private int alphamapWidth;
         private int alphamapHeight;
@@ -96,6 +96,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
         public double LastCullingMilliseconds { get; private set; }
         public double LastBuildMilliseconds { get; private set; }
         public Texture2D DensityDebugTexture => densityDebugTexture;
+        public GpuGrassSettings RuntimeSettings => ResolveSettings();
 
         public void Initialize(Terrain terrain, int generationSeed, GpuGrassSettings settings, float terrainWaterLevel)
         {
@@ -105,6 +106,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
             waterLevel = terrainWaterLevel;
             resolvedGrassSeed = unchecked(seed + grassSettings.GrassSeed * 1009);
             terrainTintApplied = false;
+            sourceAlphamaps = null;
 
             ReleaseRuntimeResources();
 
@@ -123,6 +125,60 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                           nearGrassMesh != null &&
                           midGrassMesh != null &&
                           grassMaterial != null;
+        }
+
+        public void ApplyRuntimeSettings(GpuGrassSettings settings, bool rebuild)
+        {
+            grassSettings = settings != null
+                ? settings.Clone()
+                : GpuGrassSettings.CreatePreset(ForestQualityLevel.High);
+            resolvedGrassSeed = unchecked(seed + grassSettings.GrassSeed * 1009);
+
+            if (rebuild)
+            {
+                RebuildRuntimeResources();
+                return;
+            }
+
+            ApplyMaterialSettings();
+            if (!grassSettings.EnableTerrainDensityTint)
+            {
+                RestoreTerrainDensityTint();
+            }
+            else
+            {
+                ApplyTerrainDensityTint();
+            }
+        }
+
+        public void RebuildRuntimeResources()
+        {
+            if (targetTerrain == null || targetTerrain.terrainData == null)
+            {
+                initialized = false;
+                return;
+            }
+
+            ReleaseRuntimeResources();
+
+            var stopwatch = Stopwatch.StartNew();
+            CreateRuntimeResources();
+            CacheTerrainData();
+            BuildDensityGrid();
+            if (ResolveSettings().EnableTerrainDensityTint)
+            {
+                ApplyTerrainDensityTint();
+            }
+            else
+            {
+                RestoreTerrainDensityTint();
+            }
+
+            BuildClusterInstances();
+            stopwatch.Stop();
+
+            LastBuildMilliseconds = stopwatch.Elapsed.TotalMilliseconds;
+            initialized = clusters.Count > 0 && nearGrassMesh != null && midGrassMesh != null && grassMaterial != null;
         }
 
         public void AddDiagnostics(Camera camera, IList<GpuGrassDiagnostic> diagnostics)
@@ -547,7 +603,15 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
             alphamapWidth = data.alphamapWidth;
             alphamapHeight = data.alphamapHeight;
             alphamapLayers = data.alphamapLayers;
-            alphamaps = data.GetAlphamaps(0, 0, alphamapWidth, alphamapHeight);
+            if (sourceAlphamaps == null ||
+                sourceAlphamaps.GetLength(0) != alphamapHeight ||
+                sourceAlphamaps.GetLength(1) != alphamapWidth ||
+                sourceAlphamaps.GetLength(2) != alphamapLayers)
+            {
+                sourceAlphamaps = data.GetAlphamaps(0, 0, alphamapWidth, alphamapHeight);
+            }
+
+            alphamaps = CloneAlphamaps(sourceAlphamaps);
         }
 
         private void BuildDensityGrid()
@@ -602,9 +666,9 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
             var worldZ = terrainPosition.z + nz * terrainSize.z;
 
             var layerMask = SampleGrassLayer(nx, nz);
-            var slopeMask = 1f - SmoothRange(20f, 44f, slope);
-            var waterMask = SmoothRange(0.018f, 0.08f, aboveWater);
-            var heightMask = 1f - SmoothRange(0.78f, 0.96f, normalizedHeight);
+            var slopeMask = 1f - SmoothRange(settings.SlopeFadeStart, settings.SlopeFadeEnd, slope);
+            var waterMask = SmoothRange(settings.WaterFadeStart, settings.WaterFadeEnd, aboveWater);
+            var heightMask = 1f - SmoothRange(settings.HeightFadeStart, settings.HeightFadeEnd, normalizedHeight);
             var macro = FbmNoise(worldX / settings.MacroNoiseScale, worldZ / settings.MacroNoiseScale, resolvedGrassSeed, settings);
             var micro = FbmNoise(worldX / settings.MicroNoiseScale, worldZ / settings.MicroNoiseScale, resolvedGrassSeed + 137, settings);
             var noise = RemapContrast(macro * 0.75f + micro * 0.25f, settings.NoiseContrast);
@@ -648,15 +712,15 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                         var value = alphamaps[z, x, layer];
                         if (layer == GrassLayer)
                         {
-                            value *= 1f + tint * 0.28f;
+                            value *= 1f + tint * settings.TerrainGrassBoost;
                         }
                         else if (layer == GrassVariationLayer)
                         {
-                            value += tint * 0.18f;
+                            value += tint * settings.TerrainVariationBoost;
                         }
                         else if (layer == RockLayer || layer == ShoreLayer)
                         {
-                            value *= 1f - tint * 0.08f;
+                            value *= 1f - tint * settings.TerrainRockSuppression;
                         }
 
                         modified[z, x, layer] = Mathf.Max(0f, value);
@@ -680,6 +744,22 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
             targetTerrain.Flush();
             alphamaps = modified;
             terrainTintApplied = true;
+        }
+
+        private void RestoreTerrainDensityTint()
+        {
+            if (targetTerrain == null ||
+                targetTerrain.terrainData == null ||
+                sourceAlphamaps == null)
+            {
+                terrainTintApplied = false;
+                return;
+            }
+
+            targetTerrain.terrainData.SetAlphamaps(0, 0, sourceAlphamaps);
+            targetTerrain.Flush();
+            alphamaps = CloneAlphamaps(sourceAlphamaps);
+            terrainTintApplied = false;
         }
 
         private void BuildClusterInstances()
@@ -866,16 +946,20 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
             var x = Mathf.Clamp(Mathf.RoundToInt(nx * (alphamapWidth - 1)), 0, alphamapWidth - 1);
             var z = Mathf.Clamp(Mathf.RoundToInt(nz * (alphamapHeight - 1)), 0, alphamapHeight - 1);
             var grass = alphamapLayers > GrassLayer ? alphamaps[z, x, GrassLayer] : 1f;
+            var settings = ResolveSettings();
             var variation = alphamapLayers > GrassVariationLayer ? alphamaps[z, x, GrassVariationLayer] : 0f;
             var shore = alphamapLayers > ShoreLayer ? alphamaps[z, x, ShoreLayer] : 0f;
             var rock = alphamapLayers > RockLayer ? alphamaps[z, x, RockLayer] : 0f;
-            return Mathf.Clamp01((grass + variation * 0.85f) * (1f - shore * 0.7f) * (1f - rock * 0.9f));
+            return Mathf.Clamp01((grass + variation * settings.GrassVariationLayerWeight) *
+                                 (1f - shore * settings.ShoreSuppression) *
+                                 (1f - rock * settings.RockSuppression));
         }
 
         private void CreateRuntimeResources()
         {
-            nearGrassMesh ??= CreateGrassMesh("Generated GPU Grass Near Cards", NearBladeCount);
-            midGrassMesh ??= CreateGrassMesh("Generated GPU Grass Mid Cards", MidBladeCount);
+            var settings = ResolveSettings();
+            nearGrassMesh ??= CreateGrassMesh("Generated GPU Grass Near Cards", settings.NearBladeCount);
+            midGrassMesh ??= CreateGrassMesh("Generated GPU Grass Mid Cards", settings.MidBladeCount);
             grassMaterial ??= CreateGrassMaterial();
             ApplyMaterialSettings();
         }
@@ -913,9 +997,10 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
             SetTextureIfPresent(material, BaseMapId, sourceTexture);
             SetTextureIfPresent(material, BaseColorMapId, sourceTexture);
             SetTextureIfPresent(material, MainTexId, sourceTexture);
-            SetColorIfPresent(material, BottomColorId, new Color(0.12f, 0.28f, 0.08f, 1f));
-            SetColorIfPresent(material, TopColorId, new Color(0.44f, 0.74f, 0.22f, 1f));
-            SetFloatIfPresent(material, CutoffId, 0.08f);
+            SetColorIfPresent(material, BottomColorId, new Color(0.42f, 0.72f, 0.2f, 1f));
+            SetColorIfPresent(material, TopColorId, new Color(0.88f, 0.98f, 0.38f, 1f));
+            SetFloatIfPresent(material, AmbientId, 0.9f);
+            SetFloatIfPresent(material, CutoffId, 0.045f);
             return material;
         }
 
@@ -930,12 +1015,14 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
             SetFloatIfPresent(grassMaterial, WindStrengthId, settings.WindStrength);
             SetFloatIfPresent(grassMaterial, WindSpeedId, settings.WindSpeed);
             SetFloatIfPresent(grassMaterial, WindScaleId, settings.WindScale);
+            SetFloatIfPresent(grassMaterial, AmbientId, 0.9f);
             SetFloatIfPresent(grassMaterial, AtlasColumnsId, settings.AtlasColumns);
             SetFloatIfPresent(grassMaterial, AtlasRowsId, settings.AtlasRows);
         }
 
         private static Mesh CreateGrassMesh(string meshName, int bladeCount)
         {
+            var isMidMesh = meshName.IndexOf("Mid", StringComparison.OrdinalIgnoreCase) >= 0;
             var vertices = new List<Vector3>(bladeCount * 4);
             var normals = new List<Vector3>(bladeCount * 4);
             var uvs = new List<Vector2>(bladeCount * 4);
@@ -944,12 +1031,17 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
             for (var i = 0; i < bladeCount; i++)
             {
                 var angle = (360f / bladeCount) * i + (i % 2) * 13f;
-                var height = Mathf.Lerp(0.34f, 0.58f, Hash01(97, i, bladeCount, 13));
-                var width = Mathf.Lerp(0.035f, 0.068f, Hash01(101, i, bladeCount, 29));
+                var height = isMidMesh
+                    ? Mathf.Lerp(0.52f, 0.82f, Hash01(97, i, bladeCount, 13))
+                    : Mathf.Lerp(0.78f, 1.18f, Hash01(97, i, bladeCount, 13));
+                var width = isMidMesh
+                    ? Mathf.Lerp(0.04f, 0.078f, Hash01(101, i, bladeCount, 29))
+                    : Mathf.Lerp(0.045f, 0.09f, Hash01(101, i, bladeCount, 29));
+                var scatter = isMidMesh ? 0.12f : 0.24f;
                 var offset = new Vector3(
-                    (Hash01(103, i, bladeCount, 31) - 0.5f) * 0.08f,
+                    (Hash01(103, i, bladeCount, 31) - 0.5f) * scatter,
                     0f,
-                    (Hash01(107, i, bladeCount, 37) - 0.5f) * 0.08f);
+                    (Hash01(107, i, bladeCount, 37) - 0.5f) * scatter);
                 AddBlade(vertices, normals, uvs, triangles, angle, width, height, offset);
             }
 
@@ -980,15 +1072,15 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
             Vector3 offset)
         {
             var rotation = Quaternion.Euler(0f, yaw, 0f);
-            var bend = rotation * new Vector3(0f, 0f, width * 0.55f);
+            var bend = rotation * new Vector3(0f, 0f, height * 0.12f + width * 0.2f);
             var right = rotation * Vector3.right;
             var normal = rotation * Vector3.forward;
             var start = vertices.Count;
 
-            vertices.Add(offset - right * width);
-            vertices.Add(offset + right * width);
-            vertices.Add(offset - right * width * 0.18f + Vector3.up * height + bend);
-            vertices.Add(offset + right * width * 0.18f + Vector3.up * height + bend);
+            vertices.Add(offset - right * width * 0.62f);
+            vertices.Add(offset + right * width * 0.62f);
+            vertices.Add(offset - right * width * 0.035f + Vector3.up * height + bend);
+            vertices.Add(offset + right * width * 0.035f + Vector3.up * height + bend);
 
             for (var i = 0; i < 4; i++)
             {
@@ -1025,6 +1117,18 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
             packedInstances.Clear();
             visibleClusters.Clear();
             ClearVisibleData();
+        }
+
+        private static float[,,] CloneAlphamaps(float[,,] source)
+        {
+            if (source == null)
+            {
+                return null;
+            }
+
+            var clone = new float[source.GetLength(0), source.GetLength(1), source.GetLength(2)];
+            Array.Copy(source, clone, source.Length);
+            return clone;
         }
 
         private static void DestroyRuntimeObject(UnityEngine.Object target)
@@ -1137,13 +1241,13 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
         private static Vector4 ResolveTint(byte tint)
         {
             var t = tint / 255f;
-            var dry = new Color(0.74f, 0.68f, 0.38f, 1f);
-            var lush = new Color(0.62f, 0.92f, 0.32f, 1f);
-            var shade = new Color(0.42f, 0.72f, 0.24f, 1f);
+            var dry = new Color(0.86f, 0.82f, 0.38f, 1f);
+            var lush = new Color(0.78f, 1f, 0.36f, 1f);
+            var shade = new Color(0.52f, 0.86f, 0.24f, 1f);
             var color = t < 0.5f
                 ? Color.Lerp(dry, shade, t * 2f)
                 : Color.Lerp(shade, lush, (t - 0.5f) * 2f);
-            return new Vector4(color.r, color.g, color.b, 0.62f);
+            return new Vector4(color.r, color.g, color.b, 0.46f);
         }
 
         private static Texture ResolveSourceTexture(Material sourceMaterial)

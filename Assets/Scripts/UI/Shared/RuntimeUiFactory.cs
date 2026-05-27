@@ -156,6 +156,9 @@ namespace LegendsOfWarAndMagic.UI.Shared
 
             var handle = CreateImage(handleArea.transform, "Handle", new Color(0.97f, 0.86f, 0.55f, 1f));
             var handleRect = handle.GetComponent<RectTransform>();
+            handleRect.anchorMin = new Vector2(0.5f, 0.5f);
+            handleRect.anchorMax = new Vector2(0.5f, 0.5f);
+            handleRect.pivot = new Vector2(0.5f, 0.5f);
             handleRect.sizeDelta = new Vector2(28f, 46f);
 
             var slider = sliderObject.AddComponent<Slider>();

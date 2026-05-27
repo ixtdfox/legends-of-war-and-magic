@@ -80,12 +80,15 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Runtime
             var midDistance = Mathf.Clamp(request.GrassDrawDistance * 0.34f, nearDistance + 8f, 46f);
             var farVisualDistance = Mathf.Clamp(request.GrassDrawDistance, midDistance, 140f);
             var clusterSize = Mathf.Clamp(settings.ClusterSize, 8f, 12f);
-            var spacing = Mathf.Lerp(0.62f, 0.44f, saturation);
-            var nearBudget = Mathf.RoundToInt(Mathf.Lerp(9000f, 18000f, saturation));
-            var midBudget = Mathf.RoundToInt(Mathf.Lerp(9000f, 24000f, saturation));
-            var triangleBudget = Mathf.RoundToInt(Mathf.Lerp(130000f, 260000f, saturation));
-            var densityScale = Mathf.Lerp(0.48f, 0.92f, saturation);
-            var midDensity = Mathf.Lerp(0.34f, 0.48f, saturation);
+            var spacing = Mathf.Lerp(0.5f, 0.28f, saturation);
+            var nearBudget = Mathf.RoundToInt(Mathf.Lerp(12000f, 22000f, saturation));
+            var midBudget = Mathf.RoundToInt(Mathf.Lerp(10000f, 23500f, saturation));
+            var triangleBudget = Mathf.RoundToInt(Mathf.Lerp(170000f, 300000f, saturation));
+            var densityScale = Mathf.Lerp(0.75f, 1.45f, saturation);
+            var midDensity = Mathf.Lerp(0.28f, 0.44f, saturation);
+            var thresholdLow = Mathf.Lerp(0.18f, 0.1f, saturation);
+            var thresholdHigh = Mathf.Lerp(0.5f, 0.38f, saturation);
+            var noiseContrast = Mathf.Lerp(1.32f, 1.45f, saturation);
 
             settings.ConfigureBudget(
                 settings.Enabled,
@@ -112,9 +115,9 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Runtime
                 settings.NoiseOctaves,
                 settings.NoisePersistence,
                 settings.NoiseLacunarity,
-                settings.NoiseThresholdLow,
-                settings.NoiseThresholdHigh,
-                settings.NoiseContrast);
+                thresholdLow,
+                thresholdHigh,
+                noiseContrast);
             return settings;
         }
 

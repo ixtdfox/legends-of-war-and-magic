@@ -23,8 +23,8 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
             terrainData.terrainLayers = new[]
             {
                 ResolveLayer(settings, TerrainSurfaceRole.Shore, "Generated Shore", new Color(0.55f, 0.48f, 0.31f, 1f), 9f),
-                ResolveLayer(settings, TerrainSurfaceRole.Ground, "Generated Grass", new Color(0.17f, 0.36f, 0.17f, 1f), 12f),
-                ResolveResourceLayer("TerrainLayers/Terrain/Fristy_Terrain_Grass_01", "Generated Grass Variation", new Color(0.28f, 0.42f, 0.16f, 1f), 7f),
+                ResolveLayer(settings, TerrainSurfaceRole.Ground, "Generated Grass", new Color(0.34f, 0.56f, 0.20f, 1f), 12f),
+                ResolveResourceLayer("TerrainLayers/Terrain/Fristy_Terrain_Grass_01", "Generated Grass Variation", new Color(0.52f, 0.70f, 0.22f, 1f), 7f),
                 ResolveLayer(settings, TerrainSurfaceRole.Rock, "Generated Rock", new Color(0.35f, 0.36f, 0.34f, 1f), 10f),
                 ResolveLayer(settings, TerrainSurfaceRole.Highland, "Generated Highland", new Color(0.54f, 0.57f, 0.50f, 1f), 11f)
             };

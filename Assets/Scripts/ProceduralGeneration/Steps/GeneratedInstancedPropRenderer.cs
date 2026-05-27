@@ -6,6 +6,16 @@ using UnityEngine.Rendering;
 
 namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
 {
+    public enum GeneratedPropVisibilityCategory
+    {
+        Trees,
+        Bushes,
+        Rocks,
+        Plants,
+        Logs,
+        Other
+    }
+
     /// <summary>
     /// Renders generated props through explicit GPU instancing instead of thousands of
     /// individual MeshRenderer submissions.
@@ -15,11 +25,15 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
     public sealed class GeneratedInstancedPropRenderer : MonoBehaviour
     {
         private const int MaxInstancesPerBatch = 1023;
-        private const float HighDetailTreeShadowDistanceScale = 0.36f;
-        private const float MinimumHighDetailTreeShadowDistance = 10f;
 
         [SerializeField] private ForestQualityLevel qualityPreset = ForestQualityLevel.High;
         [SerializeField] private ForestLodSettings forestLodSettings = ForestLodSettings.CreatePreset(ForestQualityLevel.High);
+        [SerializeField] private bool renderTrees = true;
+        [SerializeField] private bool renderBushes = true;
+        [SerializeField] private bool renderRocks = true;
+        [SerializeField] private bool renderPlants = true;
+        [SerializeField] private bool renderLogs = true;
+        [SerializeField] private bool renderOtherProps = true;
 
         private readonly Dictionary<int, PropRenderPrototype> prototypeCache = new();
         private readonly Dictionary<Material, Material> instancedMaterialCache = new();
@@ -50,6 +64,51 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
             forestLodSettings = ForestLodSettings.CreatePreset(preset);
         }
 
+        public void ApplyRuntimeLodSettings(ForestLodSettings settings)
+        {
+            forestLodSettings = settings != null
+                ? settings.Clone()
+                : ForestLodSettings.CreatePreset(qualityPreset);
+        }
+
+        public bool IsRuntimeCategoryVisible(GeneratedPropVisibilityCategory category)
+        {
+            return category switch
+            {
+                GeneratedPropVisibilityCategory.Trees => renderTrees,
+                GeneratedPropVisibilityCategory.Bushes => renderBushes,
+                GeneratedPropVisibilityCategory.Rocks => renderRocks,
+                GeneratedPropVisibilityCategory.Plants => renderPlants,
+                GeneratedPropVisibilityCategory.Logs => renderLogs,
+                _ => renderOtherProps
+            };
+        }
+
+        public void SetRuntimeCategoryVisible(GeneratedPropVisibilityCategory category, bool value)
+        {
+            switch (category)
+            {
+                case GeneratedPropVisibilityCategory.Trees:
+                    renderTrees = value;
+                    break;
+                case GeneratedPropVisibilityCategory.Bushes:
+                    renderBushes = value;
+                    break;
+                case GeneratedPropVisibilityCategory.Rocks:
+                    renderRocks = value;
+                    break;
+                case GeneratedPropVisibilityCategory.Plants:
+                    renderPlants = value;
+                    break;
+                case GeneratedPropVisibilityCategory.Logs:
+                    renderLogs = value;
+                    break;
+                default:
+                    renderOtherProps = value;
+                    break;
+            }
+        }
+
         public int EstimateVisibleBatchCount(Camera camera)
         {
             if (camera == null)
@@ -62,7 +121,10 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
             var settings = ResolveForestLodSettings();
             for (var i = 0; i < drawGroups.Count; i++)
             {
-                batchCount += drawGroups[i].EstimateBatchCount(cameraPosition, settings);
+                batchCount += drawGroups[i].EstimateBatchCount(
+                    cameraPosition,
+                    settings,
+                    IsRuntimeCategoryVisible(drawGroups[i].VisibilityCategory));
             }
 
             return batchCount;
@@ -91,7 +153,12 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
             var cameraPosition = hasCamera ? camera.transform.position : Vector3.zero;
             for (var i = 0; i < drawGroups.Count; i++)
             {
-                drawGroups[i].AddDiagnostic(cameraPosition, hasCamera, settings, diagnostics);
+                drawGroups[i].AddDiagnostic(
+                    cameraPosition,
+                    hasCamera,
+                    settings,
+                    IsRuntimeCategoryVisible(drawGroups[i].VisibilityCategory),
+                    diagnostics);
             }
         }
 
@@ -133,7 +200,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
             for (var i = 0; i < prototype.Elements.Length; i++)
             {
                 var element = prototype.Elements[i];
-                var group = GetOrCreateGroup(element);
+                var group = GetOrCreateGroup(element, role);
                 var matrix = rootMatrix * element.LocalMatrix;
                 group.Add(matrix, instanceCenter, drawDistance, prototype.MaxLodIndex, sourcePrefabName);
             }
@@ -209,7 +276,11 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
             var cameraPosition = camera.transform.position;
             for (var i = 0; i < drawGroups.Count; i++)
             {
-                drawGroups[i].Draw(camera, cameraPosition, settings);
+                drawGroups[i].Draw(
+                    camera,
+                    cameraPosition,
+                    settings,
+                    IsRuntimeCategoryVisible(drawGroups[i].VisibilityCategory));
             }
         }
 
@@ -248,8 +319,9 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
             return forestLodSettings;
         }
 
-        private DrawGroup GetOrCreateGroup(RenderElement element)
+        private DrawGroup GetOrCreateGroup(RenderElement element, ProceduralPropRole role)
         {
+            var visibilityCategory = ResolveVisibilityCategory(role);
             var key = new DrawKey(
                 element.Mesh,
                 element.Material,
@@ -260,14 +332,15 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                 element.ReceiveShadows,
                 element.LodIndex,
                 element.UsesDistanceLod,
-                element.IsLeafLike);
+                element.IsLeafLike,
+                visibilityCategory);
 
             if (drawGroupsByKey.TryGetValue(key, out var group))
             {
                 return group;
             }
 
-            group = new DrawGroup(element);
+            group = new DrawGroup(element, visibilityCategory);
             drawGroupsByKey.Add(key, group);
             drawGroups.Add(group);
             return group;
@@ -291,6 +364,27 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
             }
 
             return PrototypeMode.Full;
+        }
+
+        private static GeneratedPropVisibilityCategory ResolveVisibilityCategory(ProceduralPropRole role)
+        {
+            return role switch
+            {
+                ProceduralPropRole.Tree => GeneratedPropVisibilityCategory.Trees,
+                ProceduralPropRole.ForestCoreTrees => GeneratedPropVisibilityCategory.Trees,
+                ProceduralPropRole.ForestAccentTrees => GeneratedPropVisibilityCategory.Trees,
+                ProceduralPropRole.Bushes => GeneratedPropVisibilityCategory.Bushes,
+                ProceduralPropRole.Rock => GeneratedPropVisibilityCategory.Rocks,
+                ProceduralPropRole.RocksSmallMedium => GeneratedPropVisibilityCategory.Rocks,
+                ProceduralPropRole.RocksLarge => GeneratedPropVisibilityCategory.Rocks,
+                ProceduralPropRole.Cliff => GeneratedPropVisibilityCategory.Rocks,
+                ProceduralPropRole.GroundGrass => GeneratedPropVisibilityCategory.Plants,
+                ProceduralPropRole.GroundPlants => GeneratedPropVisibilityCategory.Plants,
+                ProceduralPropRole.ShorePlants => GeneratedPropVisibilityCategory.Plants,
+                ProceduralPropRole.GroundCover => GeneratedPropVisibilityCategory.Plants,
+                ProceduralPropRole.Log => GeneratedPropVisibilityCategory.Logs,
+                _ => GeneratedPropVisibilityCategory.Other
+            };
         }
 
         private PropRenderPrototype GetOrCreatePrototype(GameObject prefab, PrototypeMode mode)
@@ -551,7 +645,8 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                 int trianglesPerInstance,
                 int verticesPerInstance,
                 ShadowCastingMode shadowCastingMode,
-                bool receiveShadows)
+                bool receiveShadows,
+                GeneratedPropVisibilityCategory visibilityCategory)
             {
                 SourcePrefabs = sourcePrefabs;
                 MeshName = meshName;
@@ -564,6 +659,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                 VerticesPerInstance = verticesPerInstance;
                 ShadowCastingMode = shadowCastingMode;
                 ReceiveShadows = receiveShadows;
+                VisibilityCategory = visibilityCategory;
             }
 
             public string SourcePrefabs { get; }
@@ -580,6 +676,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
             public long VisibleVertices => (long)VisibleInstances * VerticesPerInstance;
             public ShadowCastingMode ShadowCastingMode { get; }
             public bool ReceiveShadows { get; }
+            public GeneratedPropVisibilityCategory VisibilityCategory { get; }
         }
 
         private sealed class PropRenderPrototype
@@ -660,6 +757,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
             private readonly int lodIndex;
             private readonly bool usesDistanceLod;
             private readonly bool isLeafLike;
+            private readonly GeneratedPropVisibilityCategory visibilityCategory;
 
             public DrawKey(
                 Mesh mesh,
@@ -671,7 +769,8 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                 bool receiveShadows,
                 int lodIndex,
                 bool usesDistanceLod,
-                bool isLeafLike)
+                bool isLeafLike,
+                GeneratedPropVisibilityCategory visibilityCategory)
             {
                 this.mesh = mesh;
                 this.material = material;
@@ -683,6 +782,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                 this.lodIndex = lodIndex;
                 this.usesDistanceLod = usesDistanceLod;
                 this.isLeafLike = isLeafLike;
+                this.visibilityCategory = visibilityCategory;
             }
 
             public bool Equals(DrawKey other)
@@ -696,7 +796,8 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                        receiveShadows == other.receiveShadows &&
                        lodIndex == other.lodIndex &&
                        usesDistanceLod == other.usesDistanceLod &&
-                       isLeafLike == other.isLeafLike;
+                       isLeafLike == other.isLeafLike &&
+                       visibilityCategory == other.visibilityCategory;
             }
 
             public override bool Equals(object obj)
@@ -718,6 +819,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                     hash = (hash * 397) ^ lodIndex;
                     hash = (hash * 397) ^ usesDistanceLod.GetHashCode();
                     hash = (hash * 397) ^ isLeafLike.GetHashCode();
+                    hash = (hash * 397) ^ (int)visibilityCategory;
                     return hash;
                 }
             }
@@ -736,6 +838,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
             private readonly int lodIndex;
             private readonly bool usesDistanceLod;
             private readonly bool isLeafLike;
+            private readonly GeneratedPropVisibilityCategory visibilityCategory;
             private readonly int trianglesPerInstance;
             private readonly int verticesPerInstance;
             private readonly List<Matrix4x4> matrices = new();
@@ -748,7 +851,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
             private Matrix4x4[] sourceShadowMatrices = Array.Empty<Matrix4x4>();
             private Matrix4x4[] noShadowMatrices = Array.Empty<Matrix4x4>();
 
-            public DrawGroup(RenderElement element)
+            public DrawGroup(RenderElement element, GeneratedPropVisibilityCategory category)
             {
                 mesh = element.Mesh;
                 material = element.Material;
@@ -761,10 +864,12 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                 lodIndex = element.LodIndex;
                 usesDistanceLod = element.UsesDistanceLod;
                 isLeafLike = element.IsLeafLike;
+                visibilityCategory = category;
                 trianglesPerInstance = CountSubmeshTriangles(mesh, submeshIndex);
                 verticesPerInstance = mesh != null ? mesh.vertexCount : 0;
             }
 
+            public GeneratedPropVisibilityCategory VisibilityCategory => visibilityCategory;
             public int TotalBatchCount => Mathf.CeilToInt(matrices.Count / (float)MaxInstancesPerBatch);
 
             public void Add(
@@ -784,8 +889,13 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                 }
             }
 
-            public int EstimateBatchCount(Vector3 cameraPosition, ForestLodSettings settings)
+            public int EstimateBatchCount(Vector3 cameraPosition, ForestLodSettings settings, bool categoryVisible)
             {
+                if (!categoryVisible)
+                {
+                    return 0;
+                }
+
                 var visibleCount = CountVisible(cameraPosition, true, settings);
                 return Mathf.CeilToInt(visibleCount / (float)MaxInstancesPerBatch);
             }
@@ -794,9 +904,10 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                 Vector3 cameraPosition,
                 bool hasCamera,
                 ForestLodSettings settings,
+                bool categoryVisible,
                 IList<GeneratedInstancedPropDiagnostic> diagnostics)
             {
-                var visibleCount = CountVisible(cameraPosition, hasCamera, settings);
+                var visibleCount = categoryVisible ? CountVisible(cameraPosition, hasCamera, settings) : 0;
                 diagnostics.Add(new GeneratedInstancedPropDiagnostic(
                     SourcePrefabsText,
                     mesh != null ? mesh.name : string.Empty,
@@ -808,12 +919,13 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                     trianglesPerInstance,
                     verticesPerInstance,
                     ResolveShadowCastingMode(settings),
-                    receiveShadows));
+                    receiveShadows,
+                    visibilityCategory));
             }
 
-            public void Draw(Camera camera, Vector3 cameraPosition, ForestLodSettings settings)
+            public void Draw(Camera camera, Vector3 cameraPosition, ForestLodSettings settings, bool categoryVisible)
             {
-                if (mesh == null || material == null || matrices.Count == 0)
+                if (!categoryVisible || mesh == null || material == null || matrices.Count == 0)
                 {
                     return;
                 }
@@ -829,7 +941,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                 var visibleBounds = default(Bounds);
                 var sourceShadowBounds = default(Bounds);
                 var noShadowBounds = default(Bounds);
-                var splitTreeShadows = UsesTreeShadowSplit(settings);
+                var splitShadowsByDistance = UsesShadowDistanceSplit(settings);
                 for (var i = 0; i < matrices.Count; i++)
                 {
                     var distance = Vector3.Distance(centers[i], cameraPosition);
@@ -842,9 +954,9 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                         visibleMatrices[visibleCount++] = matrix;
                         Encapsulate(instanceBounds, ref visibleBounds, ref hasBounds);
 
-                        if (splitTreeShadows)
+                        if (splitShadowsByDistance)
                         {
-                            if (ShouldUseSourceTreeShadow(activeLod, distance, settings))
+                            if (ShouldUseSourceShadow(activeLod, distance, settings))
                             {
                                 sourceShadowMatrices[sourceShadowCount++] = matrix;
                                 Encapsulate(instanceBounds, ref sourceShadowBounds, ref hasSourceShadowBounds);
@@ -868,7 +980,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                     visibleBounds = new Bounds(cameraPosition, Vector3.one);
                 }
 
-                if (splitTreeShadows)
+                if (splitShadowsByDistance)
                 {
                     if (sourceShadowCount > 0)
                     {
@@ -984,17 +1096,12 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                 }
 
                 settings ??= ForestLodSettings.CreatePreset(ForestQualityLevel.High);
-                if (settings.DisableAllShadowsAfterLod1 && lodIndex > 1)
+                if (!IsLodAllowedToCastShadows(settings))
                 {
                     return ShadowCastingMode.Off;
                 }
 
-                if (settings.DisableLeafShadowsAfterLod0 && lodIndex > 0 && isLeafLike)
-                {
-                    return ShadowCastingMode.Off;
-                }
-
-                if (settings.ShadowDistance <= settings.Lod0Distance && lodIndex > 0)
+                if (settings.ShadowDistance <= 0f)
                 {
                     return ShadowCastingMode.Off;
                 }
@@ -1002,30 +1109,46 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                 return sourceShadowCastingMode;
             }
 
-            private bool UsesTreeShadowSplit(ForestLodSettings settings)
+            private bool UsesShadowDistanceSplit(ForestLodSettings settings)
             {
-                return usesDistanceLod &&
-                       sourceShadowCastingMode != ShadowCastingMode.Off &&
+                return sourceShadowCastingMode != ShadowCastingMode.Off &&
                        settings != null &&
-                       settings.ShadowDistance > 0f;
+                       settings.ShadowDistance >= 0f;
             }
 
-            private bool ShouldUseSourceTreeShadow(int activeLod, float distance, ForestLodSettings settings)
+            private bool ShouldUseSourceShadow(int activeLod, float distance, ForestLodSettings settings)
             {
-                if (activeLod != lodIndex || activeLod != 0 || settings == null)
+                if (activeLod != lodIndex || settings == null)
                 {
                     return false;
                 }
 
-                return IsInsideSourceTreeShadowDistance(distance, settings);
+                if (!IsLodAllowedToCastShadows(settings))
+                {
+                    return false;
+                }
+
+                return distance <= settings.ShadowDistance;
             }
 
-            private static bool IsInsideSourceTreeShadowDistance(float distance, ForestLodSettings settings)
+            private bool IsLodAllowedToCastShadows(ForestLodSettings settings)
             {
-                var highDetailShadowDistance = Mathf.Min(
-                    settings.ShadowDistance,
-                    Mathf.Max(MinimumHighDetailTreeShadowDistance, settings.Lod0Distance * HighDetailTreeShadowDistanceScale));
-                return distance <= highDetailShadowDistance;
+                if (settings == null)
+                {
+                    return false;
+                }
+
+                if (settings.DisableAllShadowsAfterLod1 && lodIndex > 1)
+                {
+                    return false;
+                }
+
+                if (settings.DisableLeafShadowsAfterLod0 && lodIndex > 0 && isLeafLike)
+                {
+                    return false;
+                }
+
+                return true;
             }
 
             private string SourcePrefabsText
