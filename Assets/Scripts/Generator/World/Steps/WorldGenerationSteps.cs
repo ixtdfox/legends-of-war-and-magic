@@ -696,9 +696,9 @@ namespace LegendsOfWarAndMagic.Generator.World.Steps
             for (var i = 0; i < selected.Count; i++)
             {
                 var biome = selected[i].Biome;
-                var biomeScore = biome is BiomeType.Grassland or BiomeType.TemperateForest or BiomeType.Riverlands ? 0.4f : 0f;
+                var biomeScore = StartBiomeScore(biome);
                 var centerScore = 1f - selected[i].Position.DistanceTo(new MapPoint(0.5f, 0.5f));
-                var score = biomeScore + centerScore;
+                var score = biomeScore + centerScore * 0.35f;
                 if (score > bestScore)
                 {
                     bestScore = score;
@@ -707,6 +707,21 @@ namespace LegendsOfWarAndMagic.Generator.World.Steps
             }
 
             return bestIndex;
+        }
+
+        private static float StartBiomeScore(BiomeType biome)
+        {
+            return biome switch
+            {
+                BiomeType.DarkForest => 1.18f,
+                BiomeType.TemperateForest => 1.12f,
+                BiomeType.Swamp => 0.82f,
+                BiomeType.Riverlands => 0.70f,
+                BiomeType.Grassland => 0.38f,
+                BiomeType.Highlands => 0.28f,
+                BiomeType.LakeDistrict => 0.26f,
+                _ => 0f
+            };
         }
 
         private static MapPoint FindNearestLand(WorldGenerationContext context, MapPoint target)

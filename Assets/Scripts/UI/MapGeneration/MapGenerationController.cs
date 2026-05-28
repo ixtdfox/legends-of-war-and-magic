@@ -41,6 +41,9 @@ namespace LegendsOfWarAndMagic.UI.MapGeneration
 
         private void Awake()
         {
+            RuntimeLoadingOverlay.Hide();
+            RuntimeInputBlocker.ReleaseAll();
+            RuntimeInputBlocker.ShowCursorForUi();
             BuildUi();
         }
 

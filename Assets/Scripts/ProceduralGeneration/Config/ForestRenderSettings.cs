@@ -524,6 +524,8 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Config
             noiseThresholdLow = Mathf.Clamp01(thresholdLow);
             noiseThresholdHigh = Mathf.Clamp01(Mathf.Max(noiseThresholdLow, thresholdHigh));
             noiseContrast = Mathf.Clamp(contrast, 0.25f, 4f);
+            nearBladeCount = densityScale >= 0.78f ? 8 : 6;
+            midBladeCount = densityScale >= 0.92f ? 6 : 4;
             useOptimizedClusterRenderer = true;
         }
 
@@ -532,8 +534,8 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Config
             lodFadeDistance = 7f;
             atlasColumns = 1;
             atlasRows = 1;
-            nearBladeCount = 5;
-            midBladeCount = 2;
+            nearBladeCount = 6;
+            midBladeCount = 3;
             slopeFadeStart = 20f;
             slopeFadeEnd = 44f;
             waterFadeStart = 0.018f;
@@ -543,9 +545,9 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Config
             grassVariationLayerWeight = 0.85f;
             shoreSuppression = 0.7f;
             rockSuppression = 0.9f;
-            terrainGrassBoost = 0.46f;
-            terrainVariationBoost = 0.24f;
-            terrainRockSuppression = 0.12f;
+            terrainGrassBoost = 0.26f;
+            terrainVariationBoost = 0.16f;
+            terrainRockSuppression = 0.08f;
         }
     }
 
@@ -641,16 +643,16 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Config
             switch (preset)
             {
                 case ForestQualityLevel.Low:
-                    Configure(28f, 60f, 105f, 125f, 24f, 80, 45, true, true, true, 0.72f);
+                    Configure(42f, 95f, 190f, 240f, 72f, 900, 360, true, false, false, 0.82f);
                     break;
                 case ForestQualityLevel.Medium:
-                    Configure(36f, 82f, 138f, 160f, 30f, 140, 75, true, true, true, 0.88f);
+                    Configure(56f, 130f, 260f, 330f, 95f, 1400, 520, true, false, false, 1.00f);
                     break;
                 case ForestQualityLevel.Ultra:
-                    Configure(70f, 145f, 220f, 260f, 95f, 360, 180, true, true, true, 1.1f);
+                    Configure(80f, 190f, 360f, 460f, 140f, 2600, 950, true, false, false, 1.20f);
                     break;
                 default:
-                    Configure(48f, 104f, 165f, 185f, 34f, 220, 112, true, true, true, 1f);
+                    Configure(68f, 160f, 320f, 410f, 120f, 2100, 760, true, false, false, 1.12f);
                     break;
             }
         }

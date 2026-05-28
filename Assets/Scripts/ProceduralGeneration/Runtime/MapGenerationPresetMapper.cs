@@ -7,7 +7,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Runtime
     public static class MapGenerationPresetMapper
     {
         private const string DefaultSettingsResourcePath = "ProceduralGeneration/DefaultProceduralLocationSettings";
-        private const float TreeDensityAmplifier = 2f;
+        private const float TreeDensityAmplifier = 1.55f;
 
         public sealed class Result
         {
@@ -55,6 +55,17 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Runtime
                 landPreset.UseEdgeFalloff,
                 landPreset.FalloffStart,
                 landPreset.FalloffStrength);
+            settings.ConfigureTerrainChunks(
+                true,
+                500f,
+                129,
+                1,
+                1,
+                0,
+                1,
+                1,
+                2,
+                new Vector3(6f, 18f, 42f));
             settings.ConfigureWater(true, waterPreset.Level, sizePreset.WaterPadding, waterPreset.Color);
             settings.ConfigureForestRendering(ResolveForestQuality(safeRequest.PropDensity, safeRequest.TreeDensity));
             settings.ConfigureGpuGrass(BuildGpuGrassSettings(settings.GpuGrassSettings, safeRequest));
@@ -77,15 +88,15 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Runtime
                 : GpuGrassSettings.CreatePreset(ForestQualityLevel.High);
             var saturation = Mathf.Clamp01(request.GrassSaturation);
             var nearDistance = Mathf.Clamp(request.GrassHighDetailDistance, 10f, 18f);
-            var midDistance = Mathf.Clamp(request.GrassDrawDistance * 0.34f, nearDistance + 8f, 46f);
-            var farVisualDistance = Mathf.Clamp(request.GrassDrawDistance, midDistance, 140f);
+            var midDistance = Mathf.Clamp(request.GrassDrawDistance * 0.58f, nearDistance + 16f, 78f);
+            var farVisualDistance = Mathf.Clamp(request.GrassDrawDistance * 1.35f, midDistance, 230f);
             var clusterSize = Mathf.Clamp(settings.ClusterSize, 8f, 12f);
-            var spacing = Mathf.Lerp(0.5f, 0.28f, saturation);
-            var nearBudget = Mathf.RoundToInt(Mathf.Lerp(12000f, 22000f, saturation));
-            var midBudget = Mathf.RoundToInt(Mathf.Lerp(10000f, 23500f, saturation));
-            var triangleBudget = Mathf.RoundToInt(Mathf.Lerp(170000f, 300000f, saturation));
-            var densityScale = Mathf.Lerp(0.75f, 1.45f, saturation);
-            var midDensity = Mathf.Lerp(0.28f, 0.44f, saturation);
+            var spacing = Mathf.Lerp(0.46f, 0.24f, saturation);
+            var nearBudget = Mathf.RoundToInt(Mathf.Lerp(30000f, 68000f, saturation));
+            var midBudget = Mathf.RoundToInt(Mathf.Lerp(36000f, 90000f, saturation));
+            var triangleBudget = Mathf.RoundToInt(Mathf.Lerp(720000f, 1600000f, saturation));
+            var densityScale = Mathf.Lerp(1.05f, 1.68f, saturation);
+            var midDensity = Mathf.Lerp(0.48f, 0.72f, saturation);
             var thresholdLow = Mathf.Lerp(0.18f, 0.1f, saturation);
             var thresholdHigh = Mathf.Lerp(0.5f, 0.38f, saturation);
             var noiseContrast = Mathf.Lerp(1.32f, 1.45f, saturation);
@@ -211,9 +222,9 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Runtime
         {
             var multiplier = densityOption switch
             {
-                PropDensityOption.Low => 0.65f,
-                PropDensityOption.High => 4.35f,
-                _ => 1.55f
+                PropDensityOption.Low => 0.45f,
+                PropDensityOption.High => 1.45f,
+                _ => 1.20f
             };
 
             var categories = new List<PropCategoryPlacementSettings>();
@@ -297,12 +308,12 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Runtime
                 return ForestQualityLevel.Low;
             }
 
-            if (densityOption == PropDensityOption.High && normalizedTrees >= 0.86f)
+            if (densityOption == PropDensityOption.High && normalizedTrees >= 0.65f)
             {
                 return ForestQualityLevel.High;
             }
 
-            if (normalizedTrees >= 0.92f)
+            if (normalizedTrees >= 0.82f)
             {
                 return ForestQualityLevel.High;
             }
@@ -338,7 +349,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Runtime
             var tuned = new PropCategoryPlacementSettings();
             tuned.Configure(
                 source.CategoryName,
-                source.Enabled,
+                source.Enabled || IsAccentTreeRole(source.Role),
                 source.Prefabs,
                 density,
                 source.MinDistanceBetweenInstances,
@@ -447,8 +458,8 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Runtime
             var normalized = Mathf.Clamp01(treeDensity);
             var densityMultiplier = ResolveTreeDensityMultiplier(normalized) * TreeDensityAmplifier;
             var minDistance = Mathf.Lerp(
-                source.MinDistanceBetweenInstances * 1.28f,
-                Mathf.Max(1.35f, source.MinDistanceBetweenInstances * 0.28f),
+                source.MinDistanceBetweenInstances * 1.18f,
+                Mathf.Max(3.0f, source.MinDistanceBetweenInstances * 0.70f),
                 normalized);
             var slopeRange = source.AllowedSlopeRange;
             slopeRange.y = Mathf.Lerp(Mathf.Min(slopeRange.y, 28f), Mathf.Max(slopeRange.y, 42f), normalized);
@@ -469,8 +480,8 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Runtime
                 source.RandomYRotation,
                 source.WarnIfMissingLodGroup,
                 source.ExpectLodGroup,
-                Mathf.Lerp(source.MaxDrawDistance, 170f, normalized),
-                Mathf.Lerp(8f, 18f, normalized));
+                Mathf.Lerp(Mathf.Min(source.MaxDrawDistance, 330f), 440f, normalized),
+                Mathf.Lerp(4.5f, 6.5f, normalized));
 
             tuned.ConfigureRoleAndBiome(
                 source.Role,
@@ -500,15 +511,15 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Runtime
                 source.Enabled,
                 source.Prefabs,
                 source.DensityPer10kSqm * densityMultiplier,
-                Mathf.Lerp(source.MinDistanceBetweenInstances * 1.25f, Mathf.Max(2.7f, source.MinDistanceBetweenInstances * 0.42f), normalized),
+                Mathf.Lerp(source.MinDistanceBetweenInstances * 1.18f, Mathf.Max(4.2f, source.MinDistanceBetweenInstances * 0.65f), normalized),
                 source.AllowedSlopeRange,
                 source.AllowedHeightRange,
                 scaleRange,
                 source.RandomYRotation,
                 source.WarnIfMissingLodGroup,
                 source.ExpectLodGroup,
-                Mathf.Lerp(source.MaxDrawDistance, 170f, normalized),
-                Mathf.Lerp(9f, 18f, normalized));
+                Mathf.Lerp(Mathf.Min(source.MaxDrawDistance, 300f), 400f, normalized),
+                Mathf.Lerp(4f, 6f, normalized));
 
             tuned.ConfigureRoleAndBiome(
                 source.Role,
@@ -550,12 +561,12 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Runtime
             return source.Role switch
             {
                 ProceduralPropRole.GroundGrass => null,
-                ProceduralPropRole.Bushes => CloneCompanionCategory(source, 0.85f, 1.0f, 80f, 20f, 0.24f, 48f, 1),
-                ProceduralPropRole.GroundPlants => CloneCompanionCategory(source, 0.48f, 1.0f, 60f, 20f, 0.20f, 46f, 1),
+                ProceduralPropRole.Bushes => CloneCompanionCategory(source, 0.82f, 1.02f, 92f, 5.5f, 0.24f, 48f, 1),
+                ProceduralPropRole.GroundPlants => CloneCompanionCategory(source, 0.52f, 1.02f, 72f, 5f, 0.20f, 46f, 1),
                 ProceduralPropRole.ShorePlants => null,
-                ProceduralPropRole.RocksSmallMedium => CloneCompanionCategory(source, 0.44f, 0.95f, 105f, 16f, 0.38f, 66f, 1),
-                ProceduralPropRole.RocksLarge => CloneCompanionCategory(source, 0.42f, 0.95f, 125f, 16f, 0.44f, 70f, 1),
-                ProceduralPropRole.Log => CloneCompanionCategory(source, 0.50f, 1.0f, 80f, 20f, 0.28f, 36f, 1),
+                ProceduralPropRole.RocksSmallMedium => CloneCompanionCategory(source, 0.50f, 0.98f, 115f, 5.5f, 0.38f, 66f, 1),
+                ProceduralPropRole.RocksLarge => CloneCompanionCategory(source, 0.46f, 0.98f, 140f, 5.5f, 0.44f, 70f, 1),
+                ProceduralPropRole.Log => CloneCompanionCategory(source, 0.56f, 1.0f, 82f, 5f, 0.28f, 36f, 1),
                 _ => source
             };
         }

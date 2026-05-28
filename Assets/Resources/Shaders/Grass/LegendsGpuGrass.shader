@@ -3,9 +3,9 @@ Shader "Legends/Procedural GPU Grass"
     Properties
     {
         _BaseMap ("Grass Atlas", 2D) = "white" {}
-        _BottomColor ("Bottom Color", Color) = (0.42, 0.72, 0.20, 1)
-        _TopColor ("Top Color", Color) = (0.88, 0.98, 0.38, 1)
-        _Ambient ("Ambient", Range(0, 1)) = 0.90
+        _BottomColor ("Bottom Color", Color) = (0.24, 0.33, 0.12, 1)
+        _TopColor ("Top Color", Color) = (0.58, 0.64, 0.34, 1)
+        _Ambient ("Ambient", Range(0, 1)) = 0.92
         _WindStrength ("Wind Strength", Range(0, 2)) = 0.16
         _WindSpeed ("Wind Speed", Range(0, 8)) = 1.25
         _WindScale ("Wind Scale", Range(0.01, 1)) = 0.13
@@ -140,7 +140,7 @@ Shader "Legends/Procedural GPU Grass"
                 clip(input.fade - dither * 0.98);
 
                 float4 atlas = SAMPLE_TEXTURE2D(_BaseMap, sampler_BaseMap, input.uv);
-                float bladeHalfWidth = lerp(0.42, 0.022, input.heightMask);
+                float bladeHalfWidth = lerp(0.30, 0.018, input.heightMask);
                 float bladeMask = 1.0 - smoothstep(bladeHalfWidth * 0.68, bladeHalfWidth, abs(input.uv.x - 0.5));
                 clip(bladeMask - _Cutoff);
 
@@ -148,8 +148,10 @@ Shader "Legends/Procedural GPU Grass"
                 float3 heightTint = lerp(_BottomColor.rgb, _TopColor.rgb, input.heightMask);
                 float3 tint = lerp(float3(1.0, 1.0, 1.0), max(grassTint.rgb, float3(0.001, 0.001, 0.001)), saturate(grassTint.a));
                 float atlasValue = dot(atlas.rgb, float3(0.299, 0.587, 0.114));
-                float3 color = heightTint * tint * lerp(0.96, 1.06, saturate(atlasValue));
-                float sunlit = lerp(_Ambient, 1.08, saturate(input.heightMask * 0.72 + 0.22));
+                float3 color = heightTint * tint * lerp(0.98, 1.05, saturate(atlasValue));
+                float3 lightDir = normalize(float3(-0.42, 0.74, -0.52));
+                float nDotL = saturate(dot(normalize(input.normalWS), lightDir) * 0.5 + 0.5);
+                float sunlit = lerp(_Ambient, 1.08, nDotL) * lerp(0.96, 1.04, input.heightMask);
                 color *= sunlit;
                 return float4(color, 1.0);
             }

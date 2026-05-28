@@ -19,8 +19,8 @@ namespace LegendsOfWarAndMagic.Generator.Location
     {
         public int HeightmapResolution { get; set; } = 1025;
         public float WorldSize { get; set; } = ProceduralLocationSettings.DefaultLocationSizeMeters;
-        public float TreeDensity { get; set; } = 0.70f;
-        public float GrassSaturation { get; set; } = 0.85f;
+        public float TreeDensity { get; set; } = 0.82f;
+        public float GrassSaturation { get; set; } = 0.96f;
         public bool GenerateSceneData { get; set; } = true;
 
         public static LocationGenerationConfig CreateDefault()
@@ -144,6 +144,17 @@ namespace LegendsOfWarAndMagic.Generator.Location
                 profile.UseEdgeFalloff,
                 profile.EdgeFalloffStart,
                 profile.EdgeFalloffStrength);
+            settings.ConfigureTerrainChunks(
+                true,
+                500f,
+                129,
+                1,
+                1,
+                0,
+                1,
+                1,
+                2,
+                new Vector3(6f, 18f, 42f));
             settings.ConfigureWater(profile.WaterEnabled, profile.WaterLevel, 24f, profile.WaterColor);
             var propDensity = ResolvePropDensity(location);
             var treeDensity = ResolveTreeDensity(location, safeConfig);
@@ -163,12 +174,12 @@ namespace LegendsOfWarAndMagic.Generator.Location
         {
             return location.Type switch
             {
-                LocationType.Forest or LocationType.Swamp or LocationType.RiverCrossing => PropDensityOption.Normal,
+                LocationType.Forest or LocationType.Swamp or LocationType.RiverCrossing => PropDensityOption.High,
                 LocationType.Desert or LocationType.MountainPass => PropDensityOption.Low,
                 LocationType.Coast or LocationType.Island => PropDensityOption.Normal,
                 _ => location.DominantBiome switch
                 {
-                    BiomeType.TemperateForest or BiomeType.DarkForest or BiomeType.Swamp or BiomeType.Riverlands => PropDensityOption.Normal,
+                    BiomeType.TemperateForest or BiomeType.DarkForest or BiomeType.Swamp or BiomeType.Riverlands => PropDensityOption.High,
                     BiomeType.Desert or BiomeType.AshDesert or BiomeType.Wasteland or BiomeType.SnowPeaks or BiomeType.Mountains => PropDensityOption.Low,
                     _ => PropDensityOption.Normal
                 }
@@ -180,16 +191,16 @@ namespace LegendsOfWarAndMagic.Generator.Location
             var requested = Mathf.Clamp01(config.TreeDensity);
             var biomeDensity = location.DominantBiome switch
             {
-                BiomeType.TemperateForest => 0.56f,
-                BiomeType.DarkForest => 0.62f,
-                BiomeType.TropicalCoast => 0.48f,
-                BiomeType.Grassland => 0.24f,
-                BiomeType.Highlands => 0.22f,
+                BiomeType.TemperateForest => 0.70f,
+                BiomeType.DarkForest => 0.78f,
+                BiomeType.TropicalCoast => 0.56f,
+                BiomeType.Grassland => 0.38f,
+                BiomeType.Highlands => 0.34f,
                 BiomeType.Mountains => 0.10f,
                 BiomeType.SnowPeaks => 0.04f,
-                BiomeType.Swamp => 0.52f,
-                BiomeType.Riverlands => 0.42f,
-                BiomeType.LakeDistrict => 0.34f,
+                BiomeType.Swamp => 0.66f,
+                BiomeType.Riverlands => 0.58f,
+                BiomeType.LakeDistrict => 0.46f,
                 BiomeType.Desert => 0.03f,
                 BiomeType.AshDesert => 0.02f,
                 BiomeType.Wasteland => 0.08f,
@@ -199,40 +210,40 @@ namespace LegendsOfWarAndMagic.Generator.Location
 
             var locationBoost = location.Type switch
             {
-                LocationType.Forest => 1.10f,
-                LocationType.Swamp => 1.00f,
-                LocationType.RiverCrossing => 0.88f,
+                LocationType.Forest => 1.12f,
+                LocationType.Swamp => 1.03f,
+                LocationType.RiverCrossing => 0.94f,
                 LocationType.Coast => 0.70f,
                 LocationType.Island => 0.62f,
                 LocationType.MountainPass => 0.45f,
                 LocationType.Desert => 0.18f,
-                _ => 0.78f
+                _ => 0.86f
             };
 
-            return Mathf.Clamp(requested * 0.18f + biomeDensity * locationBoost, 0.02f, 0.66f);
+            return Mathf.Clamp(requested * 0.10f + biomeDensity * locationBoost, 0.02f, 0.82f);
         }
 
         private static ForestLodSettings BuildForestLod(ForestLodSettings source, WorldLocation location, float treeDensity)
         {
             var settings = source != null ? source.Clone() : ForestLodSettings.CreatePreset(ForestQualityLevel.High);
-            var forest01 = Mathf.InverseLerp(0.10f, 0.62f, Mathf.Clamp01(treeDensity));
+            var forest01 = Mathf.InverseLerp(0.10f, 0.82f, Mathf.Clamp01(treeDensity));
             var sparseBiome = location.DominantBiome is BiomeType.Desert or BiomeType.AshDesert or BiomeType.Wasteland or BiomeType.SnowPeaks;
 
-            var lod0 = Mathf.Lerp(30f, 52f, forest01);
-            var lod1 = Mathf.Lerp(92f, 188f, forest01);
-            var lod2 = Mathf.Lerp(132f, 270f, forest01);
-            var cull = Mathf.Lerp(145f, 310f, forest01);
+            var lod0 = Mathf.Lerp(52f, 76f, forest01);
+            var lod1 = Mathf.Lerp(130f, 185f, forest01);
+            var lod2 = Mathf.Lerp(255f, 360f, forest01);
+            var cull = Mathf.Lerp(330f, 440f, forest01);
             if (sparseBiome || location.Type == LocationType.Desert)
             {
-                lod1 = Mathf.Min(lod1, 120f);
-                lod2 = Mathf.Min(lod2, 160f);
-                cull = Mathf.Min(cull, 175f);
+                lod1 = Mathf.Min(lod1, 150f);
+                lod2 = Mathf.Min(lod2, 260f);
+                cull = Mathf.Min(cull, 330f);
             }
             else if (location.Type == LocationType.MountainPass)
             {
-                lod1 = Mathf.Min(lod1, 145f);
-                lod2 = Mathf.Min(lod2, 210f);
-                cull = Mathf.Min(cull, 225f);
+                lod1 = Mathf.Min(lod1, 190f);
+                lod2 = Mathf.Min(lod2, 340f);
+                cull = Mathf.Min(cull, 410f);
             }
 
             settings.Configure(
@@ -240,13 +251,13 @@ namespace LegendsOfWarAndMagic.Generator.Location
                 lod1,
                 lod2,
                 cull,
-                Mathf.Lerp(24f, 44f, forest01),
-                Mathf.RoundToInt(Mathf.Lerp(90f, 260f, forest01)),
-                Mathf.RoundToInt(Mathf.Lerp(48f, 118f, forest01)),
+                Mathf.Lerp(90f, 135f, forest01),
+                Mathf.RoundToInt(Mathf.Lerp(1200f, 2400f, forest01)),
+                Mathf.RoundToInt(Mathf.Lerp(420f, 900f, forest01)),
                 true,
-                true,
-                true,
-                Mathf.Lerp(0.82f, 1.08f, forest01));
+                false,
+                false,
+                Mathf.Lerp(0.82f, 1.12f, forest01));
             return settings;
         }
 
@@ -282,22 +293,22 @@ namespace LegendsOfWarAndMagic.Generator.Location
                 {
                     case ProceduralPropRole.Tree:
                     case ProceduralPropRole.ForestCoreTrees:
-                        density *= Mathf.Lerp(1.08f, 1.22f, forest01);
-                        minDistance *= Mathf.Lerp(0.96f, 0.86f, forest01);
-                        drawDistance = Mathf.Max(drawDistance, Mathf.Lerp(220f, 310f, forest01));
-                        attempts = Mathf.Max(attempts, Mathf.Lerp(12f, 18f, forest01));
+                        density *= Mathf.Lerp(1.14f, 1.62f, forest01);
+                        minDistance *= Mathf.Lerp(0.96f, 0.72f, forest01);
+                        drawDistance = LimitDrawDistance(drawDistance, Mathf.Lerp(330f, 440f, forest01));
+                        attempts = Mathf.Min(Mathf.Max(attempts, Mathf.Lerp(5.5f, 7.5f, forest01)), 8.5f);
                         slopeRange.y = Mathf.Max(slopeRange.y, Mathf.Lerp(36f, 46f, forest01));
-                        clusterThreshold = Mathf.Min(clusterThreshold, Mathf.Lerp(0.36f, 0.20f, forest01));
-                        clusterStrength = Mathf.Max(clusterStrength, Mathf.Lerp(2.0f, 3.2f, forest01));
-                        clusterNoiseScale = Mathf.Min(clusterNoiseScale, Mathf.Lerp(240f, 150f, forest01));
+                        clusterThreshold = Mathf.Min(clusterThreshold, Mathf.Lerp(0.24f, 0.10f, forest01));
+                        clusterStrength = Mathf.Min(Mathf.Max(clusterStrength, Mathf.Lerp(2.2f, 3.35f, forest01)), 3.5f);
+                        clusterNoiseScale = Mathf.Min(clusterNoiseScale, Mathf.Lerp(220f, 140f, forest01));
                         break;
                     case ProceduralPropRole.ForestAccentTrees:
-                        density *= Mathf.Lerp(1.10f, 1.28f, forest01);
-                        minDistance *= Mathf.Lerp(0.96f, 0.90f, forest01);
-                        drawDistance = Mathf.Max(drawDistance, Mathf.Lerp(190f, 260f, forest01));
-                        attempts = Mathf.Max(attempts, Mathf.Lerp(11f, 17f, forest01));
-                        clusterThreshold = Mathf.Min(clusterThreshold, Mathf.Lerp(0.48f, 0.32f, forest01));
-                        clusterStrength = Mathf.Max(clusterStrength, Mathf.Lerp(2.0f, 2.8f, forest01));
+                        density *= Mathf.Lerp(1.0f, 1.25f, forest01);
+                        minDistance *= Mathf.Lerp(0.98f, 0.88f, forest01);
+                        drawDistance = LimitDrawDistance(drawDistance, Mathf.Lerp(300f, 400f, forest01));
+                        attempts = Mathf.Min(Mathf.Max(attempts, Mathf.Lerp(5.0f, 7.0f, forest01)), 8f);
+                        clusterThreshold = Mathf.Min(clusterThreshold, Mathf.Lerp(0.42f, 0.30f, forest01));
+                        clusterStrength = Mathf.Min(Mathf.Max(clusterStrength, Mathf.Lerp(1.9f, 2.9f, forest01)), 3.1f);
                         break;
                     case ProceduralPropRole.Rock:
                     case ProceduralPropRole.RocksSmallMedium:
@@ -358,8 +369,8 @@ namespace LegendsOfWarAndMagic.Generator.Location
             var clone = new PropCategoryPlacementSettings();
             clone.Configure(
                 source.CategoryName,
-                source.Enabled,
-                source.Prefabs,
+                source.Enabled || source.Role == ProceduralPropRole.ForestAccentTrees,
+                SelectGeneratedWorldPrefabs(source.Role, source.Prefabs),
                 density,
                 minDistance,
                 slopeRange,
@@ -382,6 +393,16 @@ namespace LegendsOfWarAndMagic.Generator.Location
             return clone;
         }
 
+        private static GameObject[] SelectGeneratedWorldPrefabs(ProceduralPropRole role, GameObject[] prefabs)
+        {
+            if (prefabs == null || prefabs.Length <= 1)
+            {
+                return prefabs;
+            }
+
+            return prefabs;
+        }
+
         private static GpuGrassSettings BuildGrass(GpuGrassSettings source, LocationGenerationConfig config, WorldLocation location)
         {
             var settings = source != null ? source.Clone() : GpuGrassSettings.CreatePreset(ForestQualityLevel.High);
@@ -390,22 +411,25 @@ namespace LegendsOfWarAndMagic.Generator.Location
             {
                 BiomeType.Desert or BiomeType.AshDesert or BiomeType.Wasteland => 0.32f,
                 BiomeType.Mountains or BiomeType.SnowPeaks => 0.40f,
-                BiomeType.Swamp or BiomeType.Riverlands or BiomeType.TemperateForest => 1.0f,
+                BiomeType.Swamp or BiomeType.Riverlands or BiomeType.TemperateForest or BiomeType.DarkForest => 1.0f,
                 _ => 0.78f
             };
             var density = saturation * biomeGrass;
+            var thresholdLow = Mathf.Lerp(0.18f, 0.10f, density);
+            var thresholdHigh = Mathf.Lerp(0.50f, 0.38f, density);
+            var noiseContrast = Mathf.Lerp(1.32f, 1.45f, density);
             settings.ConfigureBudget(
                 settings.Enabled,
-                Mathf.Clamp(settings.NearDistance, 10f, 18f),
-                Mathf.Clamp(settings.MidDistance, 24f, 46f),
-                Mathf.Clamp(settings.FarVisualDistance, 80f, 140f),
+                Mathf.Clamp(settings.NearDistance, 18f, 30f),
+                Mathf.Clamp(settings.MidDistance, 52f, 80f),
+                Mathf.Clamp(settings.FarVisualDistance, 150f, 230f),
                 Mathf.Clamp(settings.ClusterSize, 8f, 12f),
-                Mathf.Lerp(0.58f, 0.34f, density),
-                Mathf.RoundToInt(Mathf.Lerp(120000f, 240000f, density)),
-                Mathf.RoundToInt(Mathf.Lerp(7000f, 18000f, density)),
-                Mathf.RoundToInt(Mathf.Lerp(6000f, 19000f, density)),
-                Mathf.Lerp(0.42f, 1.20f, density),
-                Mathf.Lerp(0.20f, 0.38f, density),
+                Mathf.Lerp(0.42f, 0.23f, density),
+                Mathf.RoundToInt(Mathf.Lerp(720000f, 1600000f, density)),
+                Mathf.RoundToInt(Mathf.Lerp(30000f, 68000f, density)),
+                Mathf.RoundToInt(Mathf.Lerp(36000f, 90000f, density)),
+                Mathf.Lerp(1.05f, 1.65f, density),
+                Mathf.Lerp(0.48f, 0.72f, density),
                 settings.TerrainDetailDensityScale,
                 settings.TerrainDetailFallbackDistance,
                 settings.WindStrength,
@@ -419,9 +443,9 @@ namespace LegendsOfWarAndMagic.Generator.Location
                 settings.NoiseOctaves,
                 settings.NoisePersistence,
                 settings.NoiseLacunarity,
-                settings.NoiseThresholdLow,
-                settings.NoiseThresholdHigh,
-                settings.NoiseContrast);
+                thresholdLow,
+                thresholdHigh,
+                noiseContrast);
             return settings;
         }
     }
@@ -511,7 +535,13 @@ namespace LegendsOfWarAndMagic.Generator.Location
                     profile.ForestQuality = ForestQualityLevel.Low;
                     break;
                 case LocationType.Forest:
-                    profile.DetailDensity = 1.15f;
+                    profile.WaterEnabled = false;
+                    profile.WaterLevel = 0f;
+                    profile.HeightMultiplier = 0.76f;
+                    profile.RidgeIntensity = 0.36f;
+                    profile.ValleyIntensity = 0.22f;
+                    profile.MicroReliefStrength = 0.10f;
+                    profile.DetailDensity = 1.0f;
                     profile.ForestQuality = ForestQualityLevel.High;
                     break;
                 case LocationType.RiverCrossing:

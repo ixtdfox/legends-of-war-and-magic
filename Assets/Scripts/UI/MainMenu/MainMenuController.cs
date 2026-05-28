@@ -35,6 +35,9 @@ namespace LegendsOfWarAndMagic.UI.MainMenu
 
         private void Awake()
         {
+            RuntimeLoadingOverlay.Hide();
+            RuntimeInputBlocker.ReleaseAll();
+            RuntimeInputBlocker.ShowCursorForUi();
             BuildUi();
         }
 

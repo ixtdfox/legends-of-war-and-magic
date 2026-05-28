@@ -38,6 +38,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration
         public Terrain GeneratedTerrain { get; private set; }
         public IProceduralTerrainSampler GeneratedTerrainSampler { get; private set; }
         public GeneratedTerrainChunkStreamer TerrainChunkStreamer { get; private set; }
+        public GeneratedPropChunkStreamer PropChunkStreamer { get; private set; }
         public Transform GeneratedContentRoot => generatedContentRoot;
         public string LastGenerationSummary { get; private set; }
         public bool GenerateOnStart
@@ -219,6 +220,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration
             GeneratedTerrain = context.GeneratedTerrain;
             GeneratedTerrainSampler = context.TerrainSampler;
             TerrainChunkStreamer = context.TerrainChunkStreamer as GeneratedTerrainChunkStreamer;
+            PropChunkStreamer = context.PropChunkStreamer as GeneratedPropChunkStreamer;
             LastGenerationSummary = BuildGenerationSummary(context);
         }
 
@@ -228,6 +230,11 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration
             if (context.TerrainChunkStreamer is GeneratedTerrainChunkStreamer streamer)
             {
                 settingsSummary += $", ChunkedTerrain={context.Settings.TerrainChunkSize:0.#}m x {streamer.LoadedTerrains.Count} loaded";
+            }
+
+            if (context.PropChunkStreamer is GeneratedPropChunkStreamer propStreamer)
+            {
+                settingsSummary += $", ChunkedProps={propStreamer.LoadedChunkCount} loaded";
             }
 
             if (context.SpawnedByCategory.Count == 0)

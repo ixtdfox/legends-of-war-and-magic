@@ -61,7 +61,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
 
             var terrainData = terrain.terrainData;
             var resolution = ResolveDetailResolution(settings, terrainData);
-            var patchResolution = Mathf.Clamp(settings.TerrainDetailResolutionPerPatch, 8, 128);
+            var patchResolution = ResolveDetailResolutionPerPatch(settings, resolution);
             terrainData.SetDetailResolution(resolution, patchResolution);
 
             var prototypes = new DetailPrototype[detailDefinitions.Count];
@@ -95,6 +95,28 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
             var zScale = terrainData.size.z / Mathf.Max(1f, settings.WorldLength);
             var chunkScale = Mathf.Max(xScale, zScale);
             return Mathf.Clamp(Mathf.RoundToInt(requested * chunkScale), 32, 512);
+        }
+
+        private static int ResolveDetailResolutionPerPatch(ProceduralLocationSettings settings, int resolution)
+        {
+            var requested = settings != null ? settings.TerrainDetailResolutionPerPatch : 16;
+            var patch = Mathf.Clamp(requested, 8, Mathf.Max(8, resolution));
+            if (resolution % patch == 0)
+            {
+                return patch;
+            }
+
+            if (resolution % 32 == 0 && patch >= 32)
+            {
+                return 32;
+            }
+
+            if (resolution % 16 == 0)
+            {
+                return 16;
+            }
+
+            return 8;
         }
 
         private static List<RuntimeDetailDefinition> BuildDetailDefinitions(ProceduralLocationSettings settings)

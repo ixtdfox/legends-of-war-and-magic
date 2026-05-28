@@ -24,7 +24,11 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Core
         public Terrain GeneratedTerrain { get; set; }
         public IProceduralTerrainSampler TerrainSampler { get; set; }
         public MonoBehaviour TerrainChunkStreamer { get; set; }
+        public MonoBehaviour PropChunkStreamer { get; set; }
         public GameObject GeneratedWater { get; set; }
+        public bool HasPropExclusion { get; set; }
+        public Vector3 PropExclusionCenter { get; set; }
+        public float PropExclusionRadius { get; set; }
         public IReadOnlyList<Terrain> GeneratedTerrains => generatedTerrains;
 
         public IReadOnlyDictionary<string, int> SpawnedByCategory => spawnedByCategory;

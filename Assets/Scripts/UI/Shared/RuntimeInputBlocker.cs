@@ -45,6 +45,12 @@ namespace LegendsOfWarAndMagic.UI.Shared
             ApplyCursorState();
         }
 
+        public static void ShowCursorForUi()
+        {
+            Cursor.lockState = CursorLockMode.None;
+            Cursor.visible = true;
+        }
+
         private static void ApplyCursorState()
         {
             if (IsBlocked)

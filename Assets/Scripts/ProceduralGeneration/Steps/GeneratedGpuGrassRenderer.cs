@@ -20,7 +20,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
         private const int GrassVariationLayer = 2;
         private const int ShoreLayer = 0;
         private const int RockLayer = 3;
-        private const int HardVisibleGrassTriangleLimit = 300000;
+        private const int HardVisibleGrassTriangleLimit = 2500000;
 
         private static readonly int GrassTintId = Shader.PropertyToID("_GrassTint");
         private static readonly int GrassInstanceDataId = Shader.PropertyToID("_GrassInstanceData");
@@ -1002,9 +1002,9 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
             SetTextureIfPresent(material, BaseMapId, sourceTexture);
             SetTextureIfPresent(material, BaseColorMapId, sourceTexture);
             SetTextureIfPresent(material, MainTexId, sourceTexture);
-            SetColorIfPresent(material, BottomColorId, new Color(0.42f, 0.72f, 0.2f, 1f));
-            SetColorIfPresent(material, TopColorId, new Color(0.88f, 0.98f, 0.38f, 1f));
-            SetFloatIfPresent(material, AmbientId, 0.9f);
+            SetColorIfPresent(material, BottomColorId, new Color(0.24f, 0.33f, 0.12f, 1f));
+            SetColorIfPresent(material, TopColorId, new Color(0.58f, 0.64f, 0.34f, 1f));
+            SetFloatIfPresent(material, AmbientId, 0.92f);
             SetFloatIfPresent(material, CutoffId, 0.045f);
             return material;
         }
@@ -1020,7 +1020,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
             SetFloatIfPresent(grassMaterial, WindStrengthId, settings.WindStrength);
             SetFloatIfPresent(grassMaterial, WindSpeedId, settings.WindSpeed);
             SetFloatIfPresent(grassMaterial, WindScaleId, settings.WindScale);
-            SetFloatIfPresent(grassMaterial, AmbientId, 0.9f);
+            SetFloatIfPresent(grassMaterial, AmbientId, 0.92f);
             SetFloatIfPresent(grassMaterial, AtlasColumnsId, settings.AtlasColumns);
             SetFloatIfPresent(grassMaterial, AtlasRowsId, settings.AtlasRows);
         }
@@ -1037,12 +1037,12 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
             {
                 var angle = (360f / bladeCount) * i + (i % 2) * 13f;
                 var height = isMidMesh
-                    ? Mathf.Lerp(0.52f, 0.82f, Hash01(97, i, bladeCount, 13))
-                    : Mathf.Lerp(0.78f, 1.18f, Hash01(97, i, bladeCount, 13));
+                    ? Mathf.Lerp(0.18f, 0.36f, Hash01(97, i, bladeCount, 13))
+                    : Mathf.Lerp(0.22f, 0.48f, Hash01(97, i, bladeCount, 13));
                 var width = isMidMesh
-                    ? Mathf.Lerp(0.04f, 0.078f, Hash01(101, i, bladeCount, 29))
-                    : Mathf.Lerp(0.045f, 0.09f, Hash01(101, i, bladeCount, 29));
-                var scatter = isMidMesh ? 0.12f : 0.24f;
+                    ? Mathf.Lerp(0.010f, 0.028f, Hash01(101, i, bladeCount, 29))
+                    : Mathf.Lerp(0.014f, 0.038f, Hash01(101, i, bladeCount, 29));
+                var scatter = isMidMesh ? 0.20f : 0.28f;
                 var offset = new Vector3(
                     (Hash01(103, i, bladeCount, 31) - 0.5f) * scatter,
                     0f,
@@ -1255,13 +1255,13 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
         private static Vector4 ResolveTint(byte tint)
         {
             var t = tint / 255f;
-            var dry = new Color(0.86f, 0.82f, 0.38f, 1f);
-            var lush = new Color(0.78f, 1f, 0.36f, 1f);
-            var shade = new Color(0.52f, 0.86f, 0.24f, 1f);
+            var dry = new Color(0.66f, 0.60f, 0.34f, 1f);
+            var lush = new Color(0.56f, 0.64f, 0.31f, 1f);
+            var shade = new Color(0.40f, 0.52f, 0.21f, 1f);
             var color = t < 0.5f
                 ? Color.Lerp(dry, shade, t * 2f)
                 : Color.Lerp(shade, lush, (t - 0.5f) * 2f);
-            return new Vector4(color.r, color.g, color.b, 0.46f);
+            return new Vector4(color.r, color.g, color.b, 0.18f);
         }
 
         private static Texture ResolveSourceTexture(Material sourceMaterial)

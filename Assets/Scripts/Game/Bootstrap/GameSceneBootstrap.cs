@@ -12,6 +12,8 @@ using LegendsOfWarAndMagic.ProceduralGeneration.Core;
 using LegendsOfWarAndMagic.ProceduralGeneration.Runtime;
 using LegendsOfWarAndMagic.UI.Shared;
 using UnityEngine;
+using UnityEngine.Rendering;
+using UnityEngine.Rendering.HighDefinition;
 
 namespace LegendsOfWarAndMagic.Game.Bootstrap
 {
@@ -26,6 +28,7 @@ namespace LegendsOfWarAndMagic.Game.Bootstrap
         private IEnumerator Start()
         {
             EnsureLighting();
+            ApplyForestVisualMood();
 
             if (!GeneratedWorldSession.HasWorld)
             {
@@ -65,12 +68,16 @@ namespace LegendsOfWarAndMagic.Game.Bootstrap
             RuntimeLoadingOverlay.SetProgress("Ищем точку входа...", 0.74f);
             yield return null;
 
-            var spawnPoint = FindEntrySpawnPoint(generator.GeneratedTerrainSampler, settings, GeneratedWorldSession.EntryDirection);
+            var isInitialLocationEntry = string.IsNullOrWhiteSpace(GeneratedWorldSession.PreviousLocationId.Value);
+            var spawnPoint = isInitialLocationEntry
+                ? FindSafeSpawnPoint(generator.GeneratedTerrainSampler, settings)
+                : FindEntrySpawnPoint(generator.GeneratedTerrainSampler, settings, GeneratedWorldSession.EntryDirection);
             yield return PreloadSpawnChunks(generator, settings, spawnPoint, 0.76f, 0.91f);
             RuntimeLoadingOverlay.SetProgress("Расставляем игрока и переходы...", 0.93f);
             yield return null;
 
             var player = CreatePlayer(spawnPoint);
+            OrientPlayerTowardLocationCenter(player, spawnPoint);
             var camera = CreateFirstPersonCamera(player);
             RuntimeFantasyGameUi.Ensure();
             RuntimeMapHud.Ensure();
@@ -105,6 +112,7 @@ namespace LegendsOfWarAndMagic.Game.Bootstrap
             yield return null;
 
             var player = CreatePlayer(spawnPoint);
+            OrientPlayerTowardLocationCenter(player, spawnPoint);
             var camera = CreateFirstPersonCamera(player);
             RuntimeFantasyGameUi.Ensure();
             RuntimeGeometryDebugPanel.Ensure(camera);
@@ -124,21 +132,45 @@ namespace LegendsOfWarAndMagic.Game.Bootstrap
             float progressEnd)
         {
             var streamer = generator.TerrainChunkStreamer;
-            if (streamer == null || settings == null)
+            if (settings == null)
             {
                 yield break;
             }
 
             var preloadRadius = Mathf.Min(settings.TerrainChunkLoadRadius, settings.TerrainChunkBootstrapPreloadRadius);
-            yield return streamer.PreloadAroundRoutine(
+            var terrainProgressEnd = generator.PropChunkStreamer != null
+                ? Mathf.Lerp(progressStart, progressEnd, 0.62f)
+                : progressEnd;
+
+            if (streamer != null)
+            {
+                yield return streamer.PreloadAroundRoutine(
+                    spawnPoint,
+                    preloadRadius,
+                    (loaded, total) =>
+                    {
+                        var progress = total <= 0 ? 1f : loaded / (float)total;
+                        RuntimeLoadingOverlay.SetProgress(
+                            $"Подгружаем стартовые чанки: {loaded}/{total}",
+                            Mathf.Lerp(progressStart, terrainProgressEnd, progress));
+                    });
+            }
+
+            var propStreamer = generator.PropChunkStreamer;
+            if (propStreamer == null)
+            {
+                yield break;
+            }
+
+            yield return propStreamer.PreloadAroundRoutine(
                 spawnPoint,
                 preloadRadius,
                 (loaded, total) =>
                 {
                     var progress = total <= 0 ? 1f : loaded / (float)total;
                     RuntimeLoadingOverlay.SetProgress(
-                        $"Подгружаем стартовые чанки: {loaded}/{total}",
-                        Mathf.Lerp(progressStart, progressEnd, progress));
+                        $"Подгружаем окружение: {loaded}/{total}",
+                        Mathf.Lerp(terrainProgressEnd, progressEnd, progress));
                 });
         }
 
@@ -165,6 +197,8 @@ namespace LegendsOfWarAndMagic.Game.Bootstrap
             var bounds = settings.GetWorldBounds();
             var maxRadius = Mathf.Min(bounds.extents.x, bounds.extents.z) * 0.65f;
             var bestPoint = new Vector3(0f, float.MinValue, 0f);
+            var bestValidPoint = new Vector3(0f, float.MinValue, 0f);
+            var bestValidScore = float.MinValue;
 
             for (var radiusStep = 0; radiusStep <= 10; radiusStep++)
             {
@@ -189,9 +223,21 @@ namespace LegendsOfWarAndMagic.Game.Bootstrap
 
                     if (point.y >= waterMinimum && slope <= 34f)
                     {
-                        return point + Vector3.up * 0.2f;
+                        var radius01 = maxRadius > 0f ? radius / maxRadius : 0f;
+                        var scenicBand = 1f - Mathf.Abs(radius01 - 0.34f);
+                        var score = point.y * 0.85f - slope * 1.2f + scenicBand * 18f;
+                        if (score > bestValidScore)
+                        {
+                            bestValidScore = score;
+                            bestValidPoint = point;
+                        }
                     }
                 }
+            }
+
+            if (bestValidScore > float.MinValue * 0.5f)
+            {
+                return bestValidPoint + Vector3.up * 0.2f;
             }
 
             if (bestPoint.y > float.MinValue * 0.5f)
@@ -284,6 +330,15 @@ namespace LegendsOfWarAndMagic.Game.Bootstrap
         private static GameObject CreatePlayer(Vector3 spawnPoint)
         {
             var player = new GameObject("Player");
+            try
+            {
+                player.tag = "Player";
+            }
+            catch (UnityException)
+            {
+                // Projects without the Player tag still work through the camera fallback.
+            }
+
             player.transform.position = spawnPoint;
 
             var characterController = player.AddComponent<CharacterController>();
@@ -312,6 +367,22 @@ namespace LegendsOfWarAndMagic.Game.Bootstrap
             return player;
         }
 
+        private static void OrientPlayerTowardLocationCenter(GameObject player, Vector3 spawnPoint)
+        {
+            if (player == null)
+            {
+                return;
+            }
+
+            var centerDirection = new Vector3(-spawnPoint.x, 0f, -spawnPoint.z);
+            if (centerDirection.sqrMagnitude <= 0.01f)
+            {
+                return;
+            }
+
+            player.transform.rotation = Quaternion.LookRotation(centerDirection.normalized, Vector3.up);
+        }
+
         private static UnityEngine.Camera CreateFirstPersonCamera(GameObject player)
         {
             var existingCamera = UnityEngine.Camera.main != null
@@ -328,7 +399,7 @@ namespace LegendsOfWarAndMagic.Game.Bootstrap
             cameraObject.transform.localRotation = Quaternion.identity;
 
             var camera = existingCamera != null ? existingCamera : cameraObject.AddComponent<UnityEngine.Camera>();
-            camera.fieldOfView = 68f;
+            camera.fieldOfView = 64f;
             camera.nearClipPlane = 0.1f;
             camera.farClipPlane = 3000f;
 
@@ -347,6 +418,7 @@ namespace LegendsOfWarAndMagic.Game.Bootstrap
             if (playerController != null)
             {
                 playerController.SetViewCamera(cameraObject.transform);
+                playerController.SetViewPitch(0f);
             }
 
             return camera;
@@ -355,20 +427,241 @@ namespace LegendsOfWarAndMagic.Game.Bootstrap
         private static void EnsureLighting()
         {
             var lights = Object.FindObjectsByType<Light>(FindObjectsSortMode.None);
+            Light primaryDirectional = null;
             for (var i = 0; i < lights.Length; i++)
             {
                 if (lights[i] != null && lights[i].type == LightType.Directional)
                 {
-                    return;
+                    primaryDirectional ??= lights[i];
                 }
             }
 
-            var lightObject = new GameObject("Directional Light");
-            lightObject.transform.rotation = Quaternion.Euler(50f, -30f, 0f);
-            var light = lightObject.AddComponent<Light>();
-            light.type = LightType.Directional;
-            light.intensity = 1.25f;
-            light.color = new Color(1f, 0.93f, 0.82f, 1f);
+            if (primaryDirectional == null)
+            {
+                var lightObject = new GameObject("Directional Light");
+                primaryDirectional = lightObject.AddComponent<Light>();
+                primaryDirectional.type = LightType.Directional;
+            }
+
+            for (var i = 0; i < lights.Length; i++)
+            {
+                if (lights[i] != null && lights[i].type == LightType.Directional)
+                {
+                    ConfigureForestDirectionalLight(lights[i], lights[i] == primaryDirectional);
+                }
+            }
+
+            ConfigureForestDirectionalLight(primaryDirectional, true);
+        }
+
+        private static void ConfigureForestDirectionalLight(Light light, bool primary)
+        {
+            if (light == null)
+            {
+                return;
+            }
+
+            light.enabled = true;
+            light.transform.rotation = Quaternion.Euler(44f, -42f, 0f);
+            light.color = primary ? new Color(0.90f, 0.91f, 0.80f, 1f) : new Color(0.58f, 0.64f, 0.58f, 1f);
+            light.intensity = primary ? 25500f : 1600f;
+            light.shadows = LightShadows.Soft;
+            light.shadowStrength = primary ? 0.70f : 0.14f;
+            light.shadowBias = 0.045f;
+            light.shadowNormalBias = 0.28f;
+
+            var hdLight = light.GetComponent<HDAdditionalLightData>();
+            if (hdLight != null)
+            {
+                hdLight.SetLightDimmer(primary ? 0.95f : 0.62f, primary ? 0.68f : 0.24f);
+            }
+        }
+
+        private static void ApplyForestVisualMood()
+        {
+            QualitySettings.lodBias = Mathf.Max(QualitySettings.lodBias, 2.25f);
+            QualitySettings.shadowDistance = Mathf.Max(QualitySettings.shadowDistance, 180f);
+            QualitySettings.shadowCascades = Mathf.Max(QualitySettings.shadowCascades, 4);
+
+            RenderSettings.ambientMode = AmbientMode.Trilight;
+            RenderSettings.ambientSkyColor = new Color(0.40f, 0.43f, 0.39f, 1f);
+            RenderSettings.ambientEquatorColor = new Color(0.25f, 0.30f, 0.22f, 1f);
+            RenderSettings.ambientGroundColor = new Color(0.075f, 0.095f, 0.065f, 1f);
+            RenderSettings.fog = true;
+            RenderSettings.fogMode = FogMode.ExponentialSquared;
+            RenderSettings.fogColor = new Color(0.66f, 0.69f, 0.66f, 1f);
+            RenderSettings.fogDensity = 0.0038f;
+
+            var cameras = Object.FindObjectsByType<UnityEngine.Camera>(FindObjectsSortMode.None);
+            for (var i = 0; i < cameras.Length; i++)
+            {
+                if (cameras[i] == null)
+                {
+                    continue;
+                }
+
+                cameras[i].clearFlags = CameraClearFlags.Skybox;
+                cameras[i].backgroundColor = new Color(0.66f, 0.69f, 0.66f, 1f);
+                cameras[i].farClipPlane = Mathf.Min(cameras[i].farClipPlane, 1800f);
+            }
+
+            ApplyHdrpForestVolumeMood();
+        }
+
+        private static void ApplyHdrpForestVolumeMood()
+        {
+            var volumes = Object.FindObjectsByType<Volume>(FindObjectsSortMode.None);
+            for (var i = 0; i < volumes.Length; i++)
+            {
+                var profile = volumes[i] != null ? volumes[i].profile : null;
+                if (profile == null)
+                {
+                    continue;
+                }
+
+                if (profile.TryGet<VisualEnvironment>(out var visualEnvironment))
+                {
+                    SetEnumVolumeParameter(visualEnvironment, "fogType", "Exponential");
+                    visualEnvironment.skyAmbientMode.overrideState = true;
+                    visualEnvironment.skyAmbientMode.value = SkyAmbientMode.Dynamic;
+                }
+
+                if (profile.TryGet<PhysicallyBasedSky>(out var sky))
+                {
+                    sky.multiplier.overrideState = true;
+                    sky.multiplier.value = 0.64f;
+                    sky.desiredLuxValue.overrideState = true;
+                    sky.desiredLuxValue.value = 18500f;
+                    sky.groundTint.overrideState = true;
+                    sky.groundTint.value = new Color(0.12f, 0.14f, 0.11f, 1f);
+                    sky.horizonTint.overrideState = true;
+                    sky.horizonTint.value = new Color(0.70f, 0.71f, 0.67f, 1f);
+                    sky.zenithTint.overrideState = true;
+                    sky.zenithTint.value = new Color(0.58f, 0.63f, 0.62f, 1f);
+                    sky.airTint.overrideState = true;
+                    sky.airTint.value = new Color(0.76f, 0.77f, 0.71f, 1f);
+                    sky.aerosolTint.overrideState = true;
+                    sky.aerosolTint.value = new Color(0.68f, 0.68f, 0.60f, 1f);
+                    sky.aerosolDensity.overrideState = true;
+                    sky.aerosolDensity.value = 0.025f;
+                    sky.colorSaturation.overrideState = true;
+                    sky.colorSaturation.value = 0.32f;
+                }
+
+                if (profile.TryGet<Fog>(out var fog))
+                {
+                    fog.enabled.overrideState = true;
+                    fog.enabled.value = true;
+                    fog.tint.overrideState = true;
+                    fog.tint.value = new Color(0.68f, 0.70f, 0.66f, 1f);
+                    fog.maxFogDistance.overrideState = true;
+                    fog.maxFogDistance.value = 1800f;
+                    fog.mipFogNear.overrideState = true;
+                    fog.mipFogNear.value = 30f;
+                    fog.mipFogFar.overrideState = true;
+                    fog.mipFogFar.value = 560f;
+                    fog.meanFreePath.overrideState = true;
+                    fog.meanFreePath.value = 300f;
+                    fog.baseHeight.overrideState = true;
+                    fog.baseHeight.value = -28f;
+                    fog.maximumHeight.overrideState = true;
+                    fog.maximumHeight.value = 190f;
+                    fog.enableVolumetricFog.overrideState = true;
+                    fog.enableVolumetricFog.value = false;
+                    fog.globalLightProbeDimmer.overrideState = true;
+                    fog.globalLightProbeDimmer.value = 1f;
+                    fog.anisotropy.overrideState = true;
+                    fog.anisotropy.value = 0.35f;
+                }
+
+                if (profile.TryGet<Exposure>(out var exposure))
+                {
+                    exposure.mode.overrideState = true;
+                    exposure.mode.value = ExposureMode.Fixed;
+                    exposure.fixedExposure.overrideState = true;
+                    exposure.fixedExposure.value = 9.45f;
+                    exposure.compensation.overrideState = true;
+                    exposure.compensation.value = -0.30f;
+                    exposure.limitMin.overrideState = true;
+                    exposure.limitMin.value = 8.3f;
+                    exposure.limitMax.overrideState = true;
+                    exposure.limitMax.value = 10.6f;
+                    exposure.adaptationSpeedDarkToLight.overrideState = true;
+                    exposure.adaptationSpeedDarkToLight.value = 2.4f;
+                    exposure.adaptationSpeedLightToDark.overrideState = true;
+                    exposure.adaptationSpeedLightToDark.value = 2.4f;
+                }
+
+                var tonemapping = EnsureVolumeOverride<Tonemapping>(profile);
+                tonemapping.mode.overrideState = true;
+                tonemapping.mode.value = TonemappingMode.ACES;
+
+                var color = EnsureVolumeOverride<ColorAdjustments>(profile);
+                color.postExposure.overrideState = true;
+                color.postExposure.value = -0.12f;
+                color.contrast.overrideState = true;
+                color.contrast.value = 8f;
+                color.saturation.overrideState = true;
+                color.saturation.value = -26f;
+                color.colorFilter.overrideState = true;
+                color.colorFilter.value = new Color(0.96f, 0.98f, 0.91f, 1f);
+
+                var ambientOcclusion = EnsureVolumeOverride<ScreenSpaceAmbientOcclusion>(profile);
+                ambientOcclusion.active = true;
+                ambientOcclusion.intensity.overrideState = true;
+                ambientOcclusion.intensity.value = 0.85f;
+                ambientOcclusion.directLightingStrength.overrideState = true;
+                ambientOcclusion.directLightingStrength.value = 0.42f;
+                ambientOcclusion.radius.overrideState = true;
+                ambientOcclusion.radius.value = 1.45f;
+
+                var bloom = EnsureVolumeOverride<Bloom>(profile);
+                bloom.active = true;
+                bloom.threshold.overrideState = true;
+                bloom.threshold.value = 1.1f;
+                bloom.intensity.overrideState = true;
+                bloom.intensity.value = 0.035f;
+                bloom.scatter.overrideState = true;
+                bloom.scatter.value = 0.45f;
+            }
+        }
+
+        private static T EnsureVolumeOverride<T>(VolumeProfile profile) where T : VolumeComponent
+        {
+            if (profile.TryGet<T>(out var component))
+            {
+                component.active = true;
+                return component;
+            }
+
+            return profile.Add<T>(true);
+        }
+
+        private static void SetEnumVolumeParameter(VolumeComponent component, string fieldName, string enumValueName)
+        {
+            if (component == null)
+            {
+                return;
+            }
+
+            var field = component.GetType().GetField(
+                fieldName,
+                System.Reflection.BindingFlags.Instance |
+                System.Reflection.BindingFlags.Public |
+                System.Reflection.BindingFlags.NonPublic);
+            if (field == null || field.GetValue(component) is not VolumeParameter parameter)
+            {
+                return;
+            }
+
+            var valueProperty = parameter.GetType().GetProperty("value");
+            if (valueProperty == null || !valueProperty.PropertyType.IsEnum)
+            {
+                return;
+            }
+
+            parameter.overrideState = true;
+            valueProperty.SetValue(parameter, System.Enum.Parse(valueProperty.PropertyType, enumValueName));
         }
 
         private static Material CreateMaterial(string name, Color color)

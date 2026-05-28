@@ -13,9 +13,9 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
     /// </summary>
     public sealed class PropPlacementStep : IGenerationStep
     {
-        private const float MinTreeHeightMeters = 8f;
-        private const float MaxTreeHeightMeters = 26f;
-        private const int AttemptsPerYield = 256;
+        private const float MinTreeHeightMeters = 8.5f;
+        private const float MaxTreeHeightMeters = 25f;
+        private const int AttemptsPerYield = 512;
 
         public void Execute(GenerationContext context)
         {
@@ -44,25 +44,68 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
 
             var propsRoot = new GameObject("GeneratedProps").transform;
             propsRoot.SetParent(context.GeneratedRoot, false);
-            var instancedRenderer = propsRoot.gameObject.AddComponent<GeneratedInstancedPropRenderer>();
+
+            if (context.Settings.TerrainChunkStreamingEnabled)
+            {
+                var streamer = propsRoot.gameObject.AddComponent<GeneratedPropChunkStreamer>();
+                streamer.Configure(context.Settings, context.Seed, terrainSampler);
+                context.PropChunkStreamer = streamer;
+                context.RecordSpawn("PropStreaming", 1);
+                progress?.Invoke("Окружение будет подгружаться по чанкам", 1f);
+                yield break;
+            }
+
+            yield return GenerateIntoRootRoutine(
+                context,
+                propsRoot,
+                context.WorldBounds,
+                context.Seed,
+                progress,
+                true);
+        }
+
+        internal static IEnumerator GenerateIntoRootRoutine(
+            GenerationContext context,
+            Transform propsRoot,
+            Bounds placementBounds,
+            int placementSeed,
+            Action<string, float> progress,
+            bool logCategorySummary = false)
+        {
+            if (context == null || propsRoot == null || context.Settings == null)
+            {
+                progress?.Invoke("Окружение пропущено", 1f);
+                yield break;
+            }
+
+            var instancedRenderer = propsRoot.gameObject.GetComponent<GeneratedInstancedPropRenderer>();
+            if (instancedRenderer == null)
+            {
+                instancedRenderer = propsRoot.gameObject.AddComponent<GeneratedInstancedPropRenderer>();
+            }
+
             instancedRenderer.ConfigureForestRendering(context.Settings.ForestRendering);
 
             var placementQueue = BuildPlacementQueue(context.Settings.PropCategories);
             var footprintGrid = new FootprintGrid2D(8f);
+            var forestAnchors = new List<Vector3>();
             for (var i = 0; i < placementQueue.Count; i++)
             {
                 var workItem = placementQueue[i];
-                var random = new System.Random(unchecked(context.Seed * 486187739 + 97 + workItem.OriginalIndex * 104729));
+                var random = new System.Random(unchecked(placementSeed * 486187739 + 97 + workItem.OriginalIndex * 104729));
                 var categoryStart = placementQueue.Count == 0 ? 1f : i / (float)placementQueue.Count;
                 var categoryEnd = placementQueue.Count == 0 ? 1f : (i + 1) / (float)placementQueue.Count;
                 var routine = PlaceCategory(
                     context,
                     workItem.Category,
-                    terrainSampler,
-                    terrain,
+                    context.TerrainSampler,
+                    context.GeneratedTerrain,
                     propsRoot,
                     instancedRenderer,
                     footprintGrid,
+                    placementBounds,
+                    logCategorySummary,
+                    forestAnchors,
                     random,
                     (categoryName, categoryProgress) =>
                     {
@@ -87,6 +130,9 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
             Transform propsRoot,
             GeneratedInstancedPropRenderer instancedRenderer,
             FootprintGrid2D footprintGrid,
+            Bounds placementBounds,
+            bool logCategorySummary,
+            List<Vector3> sharedForestAnchors,
             System.Random random,
             Action<string, float> progress)
         {
@@ -105,7 +151,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                 yield break;
             }
 
-            var area = context.Settings.WorldWidth * context.Settings.WorldLength;
+            var area = Mathf.Max(0f, placementBounds.size.x * placementBounds.size.z);
             var targetCount = Mathf.RoundToInt((area / 10000f) * category.DensityPer10kSqm);
             if (targetCount <= 0)
             {
@@ -119,17 +165,16 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
 
             var lodWarnedPrefabs = new HashSet<int>();
 
-            var worldBounds = context.WorldBounds;
-            var minX = worldBounds.min.x;
-            var maxX = worldBounds.max.x;
-            var minZ = worldBounds.min.z;
-            var maxZ = worldBounds.max.z;
+            var minX = placementBounds.min.x;
+            var maxX = placementBounds.max.x;
+            var minZ = placementBounds.min.z;
+            var maxZ = placementBounds.max.z;
 
             var categorySpacing = new PointSpacingHash2D(category.MinDistanceBetweenInstances);
             var minDistanceSqr = category.MinDistanceBetweenInstances * category.MinDistanceBetweenInstances;
             var maxAttempts = Mathf.Max(targetCount, Mathf.CeilToInt(targetCount * category.AttemptsMultiplier * ResolveAttemptBoost(category.Role)));
             var forestAnchors = ShouldUseForestAnchoredSampling(category.Role)
-                ? CollectForestAnchors(propsRoot)
+                ? sharedForestAnchors
                 : null;
             var accepted = 0;
 
@@ -150,6 +195,12 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                 if (!TrySamplePoint(terrainSampler, terrain, x, z, out var point, out var normal))
                 {
                     context.RecordRejected(categoryName, "TerrainSample");
+                    continue;
+                }
+
+                if (IsInsidePropExclusion(context, category.Role, point))
+                {
+                    context.RecordRejected(categoryName, "SpawnClearing");
                     continue;
                 }
 
@@ -203,38 +254,56 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                     uniformScale = ResolveUniformScale(category.Role, prefabLocalBounds, uniformScale, random);
                 }
 
-                var instance = canRenderInstanced
-                    ? CreateLightweightInstance(prefab, categoryRoot, spawnPoint, rotationY, uniformScale, accepted + 1)
-                    : CreatePrefabInstance(prefab, categoryRoot, spawnPoint, rotationY, uniformScale, accepted + 1);
-                if (canRenderInstanced)
+                var rootMatrix = Matrix4x4.TRS(
+                    spawnPoint,
+                    Quaternion.Euler(0f, rotationY, 0f),
+                    prefab.transform.localScale * uniformScale);
+                GameObject instance = null;
+
+                if (!canRenderInstanced)
                 {
-                    instance.AddComponent<GeneratedInstancedPropInstance>().Initialize(prefab, category.Role, category.MaxDrawDistance);
+                    instance = CreatePrefabInstance(prefab, categoryRoot, spawnPoint, rotationY, uniformScale, accepted + 1);
                 }
 
                 var footprint = canRenderInstanced
-                    ? ResolveFootprint(instance.transform, category, prefabLocalBounds)
+                    ? ResolveFootprint(rootMatrix, category, prefabLocalBounds)
                     : ResolveFootprint(instance, category);
                 if (footprintGrid.IsOverlapping(footprint.Center, footprint.Radius))
                 {
-                    SafeDestroy(instance);
+                    if (instance != null)
+                    {
+                        SafeDestroy(instance);
+                    }
+
                     context.RecordRejected(categoryName, "Overlap");
                     continue;
                 }
 
                 ValidateLodSetup(category, prefab, lodWarnedPrefabs);
                 Bounds? knownLocalBounds = canRenderInstanced ? prefabLocalBounds : (Bounds?)null;
-                EnsureBlockingCollision(instance, category, knownLocalBounds);
                 if (canRenderInstanced)
                 {
-                    instancedRenderer.RegisterPrefabInstance(prefab, category.Role, instance.transform, category.MaxDrawDistance);
+                    if (ShouldCreateRuntimeObjectForInstanced(category.Role, accepted))
+                    {
+                        instance = CreateLightweightInstance(prefab, categoryRoot, spawnPoint, rotationY, uniformScale, accepted + 1);
+                        EnsureBlockingCollision(instance, category, knownLocalBounds);
+                    }
+
+                    instancedRenderer.RegisterPrefabInstance(prefab, category.Role, rootMatrix, category.MaxDrawDistance);
                 }
                 else
                 {
+                    EnsureBlockingCollision(instance, category, knownLocalBounds);
                     ApplyDrawDistance(instance, category.MaxDrawDistance);
                 }
 
                 categorySpacing.Add(point2D);
                 footprintGrid.Add(footprint.Center, footprint.Radius);
+                if (IsTreeRole(category.Role))
+                {
+                    sharedForestAnchors?.Add(spawnPoint);
+                }
+
                 accepted++;
             }
 
@@ -247,12 +316,12 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                 context.RecordSpawn(categoryName, accepted);
 
                 var summary = $"Prop category '{categoryName}' placed {accepted}/{targetCount} instances after {maxAttempts} attempts.";
-                if (accepted < targetCount)
+                if (logCategorySummary && accepted < targetCount)
                 {
                     Debug.Log(summary);
                 }
 
-                if (category.MaxDrawDistance > 0f)
+                if (logCategorySummary && category.MaxDrawDistance > 0f)
                 {
                     Debug.Log($"{summary} Generator-side draw distance culling enabled at {category.MaxDrawDistance:0.##} units.");
                 }
@@ -436,6 +505,27 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
             {
                 anchors.Add(categoryRoot.GetChild(i).position);
             }
+        }
+
+        private static bool IsInsidePropExclusion(
+            GenerationContext context,
+            ProceduralPropRole role,
+            Vector3 point)
+        {
+            if (context == null ||
+                !context.HasPropExclusion ||
+                context.PropExclusionRadius <= 0f ||
+                role == ProceduralPropRole.GroundGrass ||
+                role == ProceduralPropRole.GroundPlants ||
+                role == ProceduralPropRole.ShorePlants)
+            {
+                return false;
+            }
+
+            var delta = new Vector2(
+                point.x - context.PropExclusionCenter.x,
+                point.z - context.PropExclusionCenter.z);
+            return delta.sqrMagnitude <= context.PropExclusionRadius * context.PropExclusionRadius;
         }
 
         private static float EvaluateBiomeScore(
@@ -730,6 +820,30 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
             };
         }
 
+        private static bool ShouldCreateRuntimeObjectForInstanced(ProceduralPropRole role, int acceptedIndex)
+        {
+            if (!ShouldBlockPlayer(role))
+            {
+                return false;
+            }
+
+            var step = role switch
+            {
+                ProceduralPropRole.Cliff => 1,
+                ProceduralPropRole.RocksLarge => 2,
+                ProceduralPropRole.Rock => 5,
+                ProceduralPropRole.RocksSmallMedium => 5,
+                ProceduralPropRole.Log => 4,
+                ProceduralPropRole.Bushes => 8,
+                ProceduralPropRole.Tree => 10,
+                ProceduralPropRole.ForestCoreTrees => 10,
+                ProceduralPropRole.ForestAccentTrees => 12,
+                _ => 16
+            };
+
+            return acceptedIndex % step == 0;
+        }
+
         private static bool IsTreeRole(ProceduralPropRole role)
         {
             return role == ProceduralPropRole.Tree ||
@@ -849,11 +963,11 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
         }
 
         private static Footprint ResolveFootprint(
-            Transform instanceTransform,
+            Matrix4x4 rootMatrix,
             PropCategoryPlacementSettings category,
             Bounds localBounds)
         {
-            var bounds = GeneratedInstancedPropRenderer.TransformBounds(localBounds, instanceTransform.localToWorldMatrix);
+            var bounds = GeneratedInstancedPropRenderer.TransformBounds(localBounds, rootMatrix);
             var center = new Vector2(bounds.center.x, bounds.center.z);
             var radius = category.MinDistanceBetweenInstances * ResolveFootprintMinDistanceFactor(category.Role);
             var rendererRadius = Mathf.Max(bounds.extents.x, bounds.extents.z);

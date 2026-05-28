@@ -87,6 +87,12 @@ namespace LegendsOfWarAndMagic.Game.Player
             ApplyCameraPitch();
         }
 
+        public void SetViewPitch(float pitchDegrees)
+        {
+            pitch = Mathf.Clamp(pitchDegrees, minPitch, maxPitch);
+            ApplyCameraPitch();
+        }
+
         private void HandleLook()
         {
             var mouseDelta = Mouse.current != null ? Mouse.current.delta.ReadValue() : Vector2.zero;

@@ -5,7 +5,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
 {
     internal static class GeneratedTerrainVisuals
     {
-        private const int TextureSize = 4;
+        private const int TextureSize = 128;
         private const int ShoreLayer = 0;
         private const int GrassLayer = 1;
         private const int GrassVariationLayer = 2;
@@ -22,11 +22,11 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
             var terrainData = terrain.terrainData;
             terrainData.terrainLayers = new[]
             {
-                ResolveLayer(settings, TerrainSurfaceRole.Shore, "Generated Shore", new Color(0.55f, 0.48f, 0.31f, 1f), 9f),
-                ResolveLayer(settings, TerrainSurfaceRole.Ground, "Generated Grass", new Color(0.34f, 0.56f, 0.20f, 1f), 12f),
-                ResolveResourceLayer("TerrainLayers/Terrain/Fristy_Terrain_Grass_01", "Generated Grass Variation", new Color(0.52f, 0.70f, 0.22f, 1f), 7f),
-                ResolveLayer(settings, TerrainSurfaceRole.Rock, "Generated Rock", new Color(0.35f, 0.36f, 0.34f, 1f), 10f),
-                ResolveLayer(settings, TerrainSurfaceRole.Highland, "Generated Highland", new Color(0.54f, 0.57f, 0.50f, 1f), 11f)
+                ResolveLayer(settings, TerrainSurfaceRole.Shore, "Generated Shore", new Color(0.32f, 0.29f, 0.22f, 1f), 7f),
+                CreateLayer("Generated Grass", new Color(0.16f, 0.24f, 0.10f, 1f), 3.5f),
+                CreateLayer("Generated Grass Variation", new Color(0.34f, 0.32f, 0.17f, 1f), 4.5f),
+                ResolveLayer(settings, TerrainSurfaceRole.Rock, "Generated Rock", new Color(0.43f, 0.44f, 0.39f, 1f), 7f),
+                CreateLayer("Generated Highland", new Color(0.39f, 0.34f, 0.21f, 1f), 5.5f)
             };
 
             terrainData.alphamapResolution = Mathf.Clamp(terrainData.heightmapResolution / 2, 64, 256);
@@ -46,18 +46,21 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                 return CreateLayer(fallbackName, fallbackColor, fallbackTileSize);
             }
 
+            var surfaceColor = Color.Lerp(fallbackColor, surface.FallbackColor, 0.35f);
             if (surface.TerrainLayer != null)
             {
-                return surface.TerrainLayer;
+                var tileSize = surface.TileSize > 0f ? surface.TileSize : fallbackTileSize;
+                return CreateLayerCopy(surface.TerrainLayer, surface.SurfaceName, surfaceColor, tileSize);
             }
 
-            return CreateLayer(surface.SurfaceName, surface.FallbackColor, surface.TileSize);
+            var fallbackSurfaceTileSize = surface.TileSize > 0f ? surface.TileSize : fallbackTileSize;
+            return CreateLayer(surface.SurfaceName, surfaceColor, fallbackSurfaceTileSize);
         }
 
         private static TerrainLayer ResolveResourceLayer(string resourcePath, string fallbackName, Color fallbackColor, float fallbackTileSize)
         {
             var layer = Resources.Load<TerrainLayer>(resourcePath);
-            return layer != null ? layer : CreateLayer(fallbackName, fallbackColor, fallbackTileSize);
+            return layer != null ? CreateLayerCopy(layer, fallbackName, fallbackColor, fallbackTileSize) : CreateLayer(fallbackName, fallbackColor, fallbackTileSize);
         }
 
         private static TerrainLayer CreateLayer(string layerName, Color color, float tileSize)
@@ -69,10 +72,40 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                 hideFlags = HideFlags.HideAndDontSave
             };
 
+            var lowerName = layerName.ToLowerInvariant();
+            var isVariation = lowerName.Contains("variation");
+            var isHighland = lowerName.Contains("highland");
+            var isShore = lowerName.Contains("shore");
+            var isRock = lowerName.Contains("rock");
+            var mossColor = isRock
+                ? new Color(0.32f, 0.34f, 0.29f, 1f)
+                : new Color(0.11f, 0.19f, 0.075f, 1f);
+            var dryColor = isHighland || isVariation
+                ? new Color(0.48f, 0.40f, 0.22f, 1f)
+                : new Color(0.38f, 0.34f, 0.17f, 1f);
+            var litterColor = isShore
+                ? new Color(0.26f, 0.23f, 0.17f, 1f)
+                : new Color(0.22f, 0.18f, 0.10f, 1f);
             var pixels = new Color[TextureSize * TextureSize];
             for (var i = 0; i < pixels.Length; i++)
             {
-                pixels[i] = color;
+                var x = i % TextureSize;
+                var y = i / TextureSize;
+                var seed = layerName.GetHashCode();
+                var broad = Mathf.PerlinNoise(x * 0.055f + seed * 0.0013f, y * 0.055f + seed * 0.0017f);
+                var medium = Mathf.PerlinNoise(x * 0.18f + seed * 0.0021f, y * 0.18f + seed * 0.0029f);
+                var fine = Mathf.PerlinNoise(x * 0.72f + seed * 0.0031f, y * 0.72f + seed * 0.0037f);
+                var dryPatch = Mathf.PerlinNoise(x * 0.038f + seed * 0.0041f, y * 0.038f + seed * 0.0047f);
+                var litterPatch = Mathf.PerlinNoise(x * 0.31f + seed * 0.0053f, y * 0.31f + seed * 0.0059f);
+                var shade = Mathf.Lerp(0.66f, 1.04f, broad * 0.56f + medium * 0.32f + fine * 0.12f);
+                var tone = Color.Lerp(mossColor, color, isRock ? 0.82f : 0.68f);
+                tone = Color.Lerp(tone, dryColor, Mathf.SmoothStep(0.50f, 0.88f, dryPatch) * (isVariation || isHighland ? 0.58f : 0.38f));
+                tone = Color.Lerp(tone, litterColor, Mathf.SmoothStep(0.66f, 0.96f, litterPatch) * 0.22f);
+                pixels[i] = new Color(
+                    Mathf.Clamp01(tone.r * shade),
+                    Mathf.Clamp01(tone.g * shade),
+                    Mathf.Clamp01(tone.b * shade),
+                    1f);
             }
 
             texture.SetPixels(pixels);
@@ -86,7 +119,51 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                 hideFlags = HideFlags.HideAndDontSave
             };
 
+            ApplyForestTerrainTone(layer, Color.white);
             return layer;
+        }
+
+        private static TerrainLayer CreateLayerCopy(TerrainLayer source, string layerName, Color color, float tileSize)
+        {
+            var layer = Object.Instantiate(source);
+            layer.name = $"{layerName} Forest Tone";
+            layer.hideFlags = HideFlags.HideAndDontSave;
+            if (tileSize > 0f)
+            {
+                layer.tileSize = new Vector2(tileSize, tileSize);
+            }
+
+            ApplyForestTerrainTone(layer, color);
+            return layer;
+        }
+
+        private static void ApplyForestTerrainTone(TerrainLayer layer, Color color)
+        {
+            if (layer == null)
+            {
+                return;
+            }
+
+            layer.diffuseRemapMin = Vector4.zero;
+            layer.diffuseRemapMax = new Vector4(color.r, color.g, color.b, 1f);
+            layer.maskMapRemapMin = Vector4.zero;
+            layer.maskMapRemapMax = Vector4.one;
+            layer.metallic = 0f;
+            layer.smoothness = 0.12f;
+            layer.specular = new Color(0.035f, 0.036f, 0.034f, 1f);
+        }
+
+        private static float Hash01(int seed, int x, int y)
+        {
+            unchecked
+            {
+                var hash = (uint)seed;
+                hash ^= (uint)(x * 374761393);
+                hash ^= (uint)(y * 668265263);
+                hash = (hash ^ (hash >> 13)) * 1274126177u;
+                hash ^= hash >> 16;
+                return (hash & 0x00FFFFFF) / 16777215f;
+            }
         }
 
         private static void PaintTerrain(Terrain terrain, ProceduralLocationSettings settings, int seed)
@@ -120,7 +197,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                     var fineNoise = Mathf.PerlinNoise(worldNx * 52.0f + seedB, worldNz * 52.0f + seedA);
                     var patchNoise = Mathf.PerlinNoise(worldNx * 7.5f + seedB * 1.7f, worldNz * 7.5f + seedA * 1.7f);
                     var ridgeNoise = Mathf.PerlinNoise(worldNx * 24.0f + seedA * 0.7f, worldNz * 24.0f + seedB * 0.7f);
-                    var variation = (broadNoise - 0.5f) * 0.24f + (fineNoise - 0.5f) * 0.08f;
+                    var variation = (broadNoise - 0.5f) * 0.18f + (fineNoise - 0.5f) * 0.08f;
                     var aboveWater = normalizedHeight - waterLevel01;
 
                     var wetShore = Mathf.Clamp01(1f - Mathf.Abs(aboveWater) / 0.028f);
@@ -135,18 +212,19 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
 
                     var soilPatch = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.58f, 0.88f, patchNoise)) * flatness;
                     var highlandWeight = Mathf.Clamp01(
-                        highElevation * (0.38f + broadNoise * 0.36f) * (1f - cliffWeight * 0.6f) +
-                        soilPatch * 0.68f);
+                        highElevation * (0.42f + broadNoise * 0.34f) * (1f - cliffWeight * 0.58f) +
+                        soilPatch * 0.95f);
 
                     var grassVariationWeight = Mathf.Clamp01(
                         Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.42f, 0.82f, patchNoise)) *
                         flatness *
-                        (0.58f + fineNoise * 0.38f));
-                    var grassWeight = Mathf.Clamp01(1.24f + broadNoise * 0.16f - shoreWeight * 1.35f - rockWeight * 1.05f - highlandWeight * 0.52f);
+                        (0.72f + fineNoise * 0.42f));
+                    var grassWeight = Mathf.Clamp01(0.98f + broadNoise * 0.12f - shoreWeight * 1.30f - rockWeight * 1.05f - highlandWeight * 0.62f);
 
                     if (slope < 18f && aboveWater > 0.06f)
                     {
-                        grassWeight += 0.28f + broadNoise * 0.18f;
+                        grassWeight += 0.12f + broadNoise * 0.10f;
+                        grassVariationWeight += soilPatch * 0.16f;
                     }
 
                     if (slope > 45f)

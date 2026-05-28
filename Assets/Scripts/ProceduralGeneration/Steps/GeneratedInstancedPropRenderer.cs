@@ -25,6 +25,11 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
     public sealed class GeneratedInstancedPropRenderer : MonoBehaviour
     {
         private const int MaxInstancesPerBatch = 1023;
+        private static readonly int BaseColorId = Shader.PropertyToID("_BaseColor");
+        private static readonly int ColorId = Shader.PropertyToID("_Color");
+        private static readonly int SmoothnessId = Shader.PropertyToID("_Smoothness");
+        private static readonly int MetallicId = Shader.PropertyToID("_Metallic");
+        private static readonly int SpecularColorId = Shader.PropertyToID("_SpecularColor");
 
         [SerializeField] private ForestQualityLevel qualityPreset = ForestQualityLevel.High;
         [SerializeField] private ForestLodSettings forestLodSettings = ForestLodSettings.CreatePreset(ForestQualityLevel.High);
@@ -199,8 +204,39 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
 
             var rootMatrix = instanceTransform.localToWorldMatrix;
             var instanceCenter = instanceTransform.TransformPoint(prototype.LocalBounds.center);
+            return RegisterPrototypeInstance(prototype, role, rootMatrix, instanceCenter, maxDrawDistance, prefab.name);
+        }
+
+        public bool RegisterPrefabInstance(
+            GameObject prefab,
+            ProceduralPropRole role,
+            Matrix4x4 rootMatrix,
+            float maxDrawDistance)
+        {
+            if (prefab == null)
+            {
+                return false;
+            }
+
+            var prototype = GetOrCreatePrototype(prefab, ResolvePrototypeMode(role));
+            if (prototype == null || !prototype.HasRenderable)
+            {
+                return false;
+            }
+
+            var instanceCenter = rootMatrix.MultiplyPoint3x4(prototype.LocalBounds.center);
+            return RegisterPrototypeInstance(prototype, role, rootMatrix, instanceCenter, maxDrawDistance, prefab.name);
+        }
+
+        private bool RegisterPrototypeInstance(
+            PropRenderPrototype prototype,
+            ProceduralPropRole role,
+            Matrix4x4 rootMatrix,
+            Vector3 instanceCenter,
+            float maxDrawDistance,
+            string sourcePrefabName)
+        {
             var drawDistance = Mathf.Max(0f, maxDrawDistance);
-            var sourcePrefabName = prefab.name;
 
             for (var i = 0; i < prototype.Elements.Length; i++)
             {
@@ -597,8 +633,92 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                 enableInstancing = true
             };
 
+            ApplyForestMaterialTone(material, source);
             instancedMaterialCache[source] = material;
             return material;
+        }
+
+        private static void ApplyForestMaterialTone(Material material, Material source)
+        {
+            if (material == null || source == null)
+            {
+                return;
+            }
+
+            var key = $"{source.name} {source.shader?.name}".ToLowerInvariant();
+            if (ContainsAny(key, "leaf", "leav", "foliage", "billboard"))
+            {
+                ApplyMaterialTone(material, new Color(0.22f, 0.32f, 0.14f, 1f), 0.62f, 0.16f);
+            }
+            else if (ContainsAny(key, "plant", "grass", "bush", "ivy", "weed", "flower"))
+            {
+                ApplyMaterialTone(material, new Color(0.20f, 0.30f, 0.12f, 1f), 0.54f, 0.14f);
+            }
+            else if (ContainsAny(key, "bark", "branch", "trunk", "wood"))
+            {
+                ApplyMaterialTone(material, new Color(0.34f, 0.27f, 0.19f, 1f), 0.36f, 0.20f);
+            }
+            else if (ContainsAny(key, "tree"))
+            {
+                ApplyMaterialTone(material, new Color(0.30f, 0.34f, 0.21f, 1f), 0.46f, 0.18f);
+            }
+            else if (ContainsAny(key, "rock", "stone", "boulder", "cliff"))
+            {
+                ApplyMaterialTone(material, new Color(0.48f, 0.49f, 0.44f, 1f), 0.25f, 0.24f);
+            }
+        }
+
+        private static void ApplyMaterialTone(Material material, Color targetColor, float strength, float smoothness)
+        {
+            var baseColor = ReadMaterialColor(material);
+            targetColor.a = baseColor.a;
+            var tonedColor = Color.Lerp(baseColor, targetColor, Mathf.Clamp01(strength));
+            tonedColor.a = baseColor.a;
+
+            SetColorIfPresent(material, BaseColorId, tonedColor);
+            SetColorIfPresent(material, ColorId, tonedColor);
+            SetColorIfPresent(material, SpecularColorId, new Color(0.025f, 0.026f, 0.024f, 1f));
+            SetFloatIfPresent(material, SmoothnessId, smoothness);
+            SetFloatIfPresent(material, MetallicId, 0f);
+        }
+
+        private static Color ReadMaterialColor(Material material)
+        {
+            if (material.HasProperty(BaseColorId))
+            {
+                return material.GetColor(BaseColorId);
+            }
+
+            return material.HasProperty(ColorId) ? material.GetColor(ColorId) : Color.white;
+        }
+
+        private static void SetColorIfPresent(Material material, int propertyId, Color value)
+        {
+            if (material != null && material.HasProperty(propertyId))
+            {
+                material.SetColor(propertyId, value);
+            }
+        }
+
+        private static void SetFloatIfPresent(Material material, int propertyId, float value)
+        {
+            if (material != null && material.HasProperty(propertyId))
+            {
+                material.SetFloat(propertyId, value);
+            }
+        }
+
+        private static bool ContainsAny(string key, params string[] values)
+        {
+            for (var i = 0; i < values.Length; i++)
+            {
+                if (key.Contains(values[i]))
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private static void EncapsulateTransformedBounds(
