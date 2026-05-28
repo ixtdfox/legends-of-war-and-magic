@@ -50,6 +50,21 @@ namespace LegendsOfWarAndMagic.UI.MapGeneration
             var background = RuntimeUiFactory.CreateImage(canvas.transform, "Background", new Color(0.048f, 0.062f, 0.067f, 1f));
             RuntimeUiFactory.Stretch(background.gameObject, Vector2.zero, Vector2.zero);
 
+            var decoration = RuntimeUiFactory.CreateSpriteImage(
+                canvas.transform,
+                "Fantasy Backdrop",
+                RuntimeUiFactory.LoadingDecorationSprite,
+                new Color(1f, 0.82f, 0.54f, 0.18f),
+                Image.Type.Simple,
+                true);
+            var decorationRect = decoration.GetComponent<RectTransform>();
+            decorationRect.anchorMin = new Vector2(0.5f, 0.5f);
+            decorationRect.anchorMax = new Vector2(0.5f, 0.5f);
+            decorationRect.pivot = new Vector2(0.5f, 0.5f);
+            decorationRect.anchoredPosition = Vector2.zero;
+            decorationRect.sizeDelta = new Vector2(1440f, 1080f);
+            decoration.raycastTarget = false;
+
             var panel = RuntimeUiFactory.CreateUiObject(canvas.transform, "Generator Panel");
             var panelRect = panel.GetComponent<RectTransform>();
             panelRect.anchorMin = new Vector2(0.5f, 0.5f);
@@ -57,10 +72,11 @@ namespace LegendsOfWarAndMagic.UI.MapGeneration
             panelRect.pivot = new Vector2(0.5f, 0.5f);
             panelRect.anchoredPosition = Vector2.zero;
             panelRect.sizeDelta = new Vector2(1240f, 1010f);
-            RuntimeUiFactory.AddVerticalLayout(panel, 12f, new RectOffset(44, 44, 28, 28), TextAnchor.UpperCenter);
+            RuntimeUiFactory.StyleMenuPanel(panel);
+            RuntimeUiFactory.AddVerticalLayout(panel, 12f, new RectOffset(64, 64, 44, 48), TextAnchor.UpperCenter);
 
-            var title = RuntimeUiFactory.CreateText(panel.transform, "Title", "Новая карта", 54, new Color(0.98f, 0.86f, 0.55f, 1f), TextAnchor.MiddleCenter, FontStyle.Bold);
-            RuntimeUiFactory.AddLayoutElement(title.gameObject, 0f, 62f);
+            var title = RuntimeUiFactory.CreateHeader(panel.transform, "Header", "Новая карта", 42);
+            RuntimeUiFactory.AddLayoutElement(title.transform.parent.gameObject, 0f, 68f);
 
             var scrollContent = CreateScrollableContent(panel.transform);
 
@@ -148,7 +164,7 @@ namespace LegendsOfWarAndMagic.UI.MapGeneration
 
         private Scrollbar CreateScrollbar(Transform parent)
         {
-            var scrollbarImage = RuntimeUiFactory.CreateImage(parent, "Generator Scrollbar", new Color(0.10f, 0.12f, 0.10f, 0.92f));
+            var scrollbarImage = RuntimeUiFactory.CreateSpriteImage(parent, "Generator Scrollbar", RuntimeUiFactory.LoadingBarBackgroundSprite, Color.white, Image.Type.Sliced);
             var scrollbarRect = scrollbarImage.GetComponent<RectTransform>();
             scrollbarRect.anchorMin = new Vector2(1f, 0f);
             scrollbarRect.anchorMax = new Vector2(1f, 1f);
@@ -156,7 +172,7 @@ namespace LegendsOfWarAndMagic.UI.MapGeneration
             scrollbarRect.offsetMin = new Vector2(-16f, 0f);
             scrollbarRect.offsetMax = Vector2.zero;
 
-            var handle = RuntimeUiFactory.CreateImage(scrollbarImage.transform, "Handle", new Color(0.78f, 0.64f, 0.28f, 0.98f));
+            var handle = RuntimeUiFactory.CreateSpriteImage(scrollbarImage.transform, "Handle", RuntimeUiFactory.LoadingBarFillSprite, Color.white, Image.Type.Sliced);
             RuntimeUiFactory.Stretch(handle.gameObject, Vector2.zero, Vector2.zero);
 
             var scrollbar = scrollbarImage.gameObject.AddComponent<Scrollbar>();
@@ -169,12 +185,11 @@ namespace LegendsOfWarAndMagic.UI.MapGeneration
         private Button[] CreateOptionRow(Transform parent, string title, string[] labels, Action<int> onSelected)
         {
             var section = RuntimeUiFactory.CreateUiObject(parent, $"{title} Section");
-            var image = section.AddComponent<Image>();
-            image.color = new Color(0.095f, 0.105f, 0.09f, 0.88f);
+            RuntimeUiFactory.StyleSection(section);
             RuntimeUiFactory.AddLayoutElement(section, 0f, 86f);
             RuntimeUiFactory.AddHorizontalLayout(section, 16f, new RectOffset(24, 24, 10, 10), TextAnchor.MiddleCenter);
 
-            var label = RuntimeUiFactory.CreateText(section.transform, $"{title} Label", title, 28, new Color(0.92f, 0.86f, 0.68f, 1f), TextAnchor.MiddleLeft, FontStyle.Bold);
+            var label = RuntimeUiFactory.CreateText(section.transform, $"{title} Label", title, 28, new Color(0.30f, 0.15f, 0.07f, 1f), TextAnchor.MiddleLeft, FontStyle.Bold);
             RuntimeUiFactory.AddLayoutElement(label.gameObject, 300f, 58f);
 
             var buttons = new Button[labels.Length];
@@ -190,25 +205,23 @@ namespace LegendsOfWarAndMagic.UI.MapGeneration
         private void CreateTreeDensityRow(Transform parent)
         {
             var section = RuntimeUiFactory.CreateUiObject(parent, "Tree Density Section");
-            var image = section.AddComponent<Image>();
-            image.color = new Color(0.095f, 0.105f, 0.09f, 0.88f);
+            RuntimeUiFactory.StyleSection(section);
             RuntimeUiFactory.AddLayoutElement(section, 0f, 88f);
             RuntimeUiFactory.AddHorizontalLayout(section, 18f, new RectOffset(24, 24, 10, 10), TextAnchor.MiddleCenter);
 
-            var label = RuntimeUiFactory.CreateText(section.transform, "Tree Density Label", "Густота леса", 28, new Color(0.92f, 0.86f, 0.68f, 1f), TextAnchor.MiddleLeft, FontStyle.Bold);
+            var label = RuntimeUiFactory.CreateText(section.transform, "Tree Density Label", "Густота леса", 28, new Color(0.30f, 0.15f, 0.07f, 1f), TextAnchor.MiddleLeft, FontStyle.Bold);
             RuntimeUiFactory.AddLayoutElement(label.gameObject, 300f, 58f);
 
             RuntimeUiFactory.CreateSlider(section.transform, "Tree Density Slider", selectedTreeDensity, OnTreeDensityChanged, new Vector2(570f, 58f));
 
-            treeDensityValue = RuntimeUiFactory.CreateText(section.transform, "Tree Density Value", string.Empty, 26, new Color(0.95f, 0.90f, 0.72f, 1f), TextAnchor.MiddleCenter, FontStyle.Bold);
+            treeDensityValue = RuntimeUiFactory.CreateText(section.transform, "Tree Density Value", string.Empty, 26, new Color(0.47f, 0.10f, 0.05f, 1f), TextAnchor.MiddleCenter, FontStyle.Bold);
             RuntimeUiFactory.AddLayoutElement(treeDensityValue.gameObject, 220f, 58f);
         }
 
         private void CreateGrassSettingsSection(Transform parent)
         {
             var section = RuntimeUiFactory.CreateUiObject(parent, "Grass Settings Section");
-            var image = section.AddComponent<Image>();
-            image.color = new Color(0.095f, 0.105f, 0.09f, 0.88f);
+            RuntimeUiFactory.StyleSection(section);
             RuntimeUiFactory.AddLayoutElement(section, 0f, 176f);
             RuntimeUiFactory.AddVerticalLayout(section, 8f, new RectOffset(24, 24, 8, 8), TextAnchor.MiddleCenter);
 
@@ -235,12 +248,12 @@ namespace LegendsOfWarAndMagic.UI.MapGeneration
             RuntimeUiFactory.AddLayoutElement(row, 0f, 48f);
             RuntimeUiFactory.AddHorizontalLayout(row, 14f, new RectOffset(0, 0, 0, 0), TextAnchor.MiddleCenter);
 
-            var label = RuntimeUiFactory.CreateText(row.transform, $"{labelText} Label", labelText, 24, new Color(0.92f, 0.86f, 0.68f, 1f), TextAnchor.MiddleLeft, FontStyle.Bold);
+            var label = RuntimeUiFactory.CreateText(row.transform, $"{labelText} Label", labelText, 24, new Color(0.30f, 0.15f, 0.07f, 1f), TextAnchor.MiddleLeft, FontStyle.Bold);
             RuntimeUiFactory.AddLayoutElement(label.gameObject, 300f, 46f);
 
             RuntimeUiFactory.CreateSlider(row.transform, $"{labelText} Slider", sliderValue, onChanged, new Vector2(560f, 46f));
 
-            var value = RuntimeUiFactory.CreateText(row.transform, $"{labelText} Value", string.Empty, 22, new Color(0.95f, 0.90f, 0.72f, 1f), TextAnchor.MiddleCenter, FontStyle.Bold);
+            var value = RuntimeUiFactory.CreateText(row.transform, $"{labelText} Value", string.Empty, 22, new Color(0.47f, 0.10f, 0.05f, 1f), TextAnchor.MiddleCenter, FontStyle.Bold);
             RuntimeUiFactory.AddLayoutElement(value.gameObject, 230f, 46f);
             return value;
         }
@@ -248,12 +261,11 @@ namespace LegendsOfWarAndMagic.UI.MapGeneration
         private void CreateSeedRow(Transform parent)
         {
             var section = RuntimeUiFactory.CreateUiObject(parent, "Seed Section");
-            var image = section.AddComponent<Image>();
-            image.color = new Color(0.095f, 0.105f, 0.09f, 0.88f);
+            RuntimeUiFactory.StyleSection(section);
             RuntimeUiFactory.AddLayoutElement(section, 0f, 86f);
             RuntimeUiFactory.AddHorizontalLayout(section, 18f, new RectOffset(24, 24, 10, 10), TextAnchor.MiddleCenter);
 
-            var label = RuntimeUiFactory.CreateText(section.transform, "Seed Label", "Seed", 28, new Color(0.92f, 0.86f, 0.68f, 1f), TextAnchor.MiddleLeft, FontStyle.Bold);
+            var label = RuntimeUiFactory.CreateText(section.transform, "Seed Label", "Seed", 28, new Color(0.30f, 0.15f, 0.07f, 1f), TextAnchor.MiddleLeft, FontStyle.Bold);
             RuntimeUiFactory.AddLayoutElement(label.gameObject, 300f, 58f);
 
             seedInput = RuntimeUiFactory.CreateInputField(section.transform, "Seed Input", "пусто = случайный", new Vector2(360f, 56f));

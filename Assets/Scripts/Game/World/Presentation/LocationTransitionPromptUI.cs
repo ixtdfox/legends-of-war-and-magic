@@ -58,11 +58,10 @@ namespace LegendsOfWarAndMagic.Game.World.Presentation
             rect.pivot = new Vector2(0.5f, 0.5f);
             rect.sizeDelta = new Vector2(720f, 260f);
 
-            var image = panel.AddComponent<Image>();
-            image.color = new Color(0.08f, 0.09f, 0.08f, 0.96f);
-            RuntimeUiFactory.AddVerticalLayout(panel, 24f, new RectOffset(42, 42, 34, 34), TextAnchor.MiddleCenter);
+            RuntimeUiFactory.StyleMenuPanel(panel);
+            RuntimeUiFactory.AddVerticalLayout(panel, 22f, new RectOffset(56, 56, 40, 40), TextAnchor.MiddleCenter);
 
-            message = RuntimeUiFactory.CreateText(panel.transform, "Prompt Text", string.Empty, 34, new Color(0.96f, 0.90f, 0.74f, 1f), TextAnchor.MiddleCenter, FontStyle.Bold);
+            message = RuntimeUiFactory.CreateText(panel.transform, "Prompt Text", string.Empty, 34, new Color(0.32f, 0.15f, 0.07f, 1f), TextAnchor.MiddleCenter, FontStyle.Bold);
             RuntimeUiFactory.AddLayoutElement(message.gameObject, 0f, 92f);
 
             var row = RuntimeUiFactory.CreateUiObject(panel.transform, "Prompt Buttons");

@@ -63,6 +63,7 @@ namespace LegendsOfWarAndMagic.Game.Bootstrap
             var spawnPoint = FindEntrySpawnPoint(generator.GeneratedTerrain, settings, GeneratedWorldSession.EntryDirection);
             var player = CreatePlayer(spawnPoint);
             var camera = CreateFirstPersonCamera(player);
+            RuntimeFantasyGameUi.Ensure();
             RuntimeMapHud.Ensure();
             LocationTransitionPromptUI.Ensure();
             CreateGatewayTriggers(location, generator.GeneratedTerrain, settings);
@@ -86,6 +87,7 @@ namespace LegendsOfWarAndMagic.Game.Bootstrap
             var spawnPoint = FindSafeSpawnPoint(generator.GeneratedTerrain, mappedSettings.Settings);
             var player = CreatePlayer(spawnPoint);
             var camera = CreateFirstPersonCamera(player);
+            RuntimeFantasyGameUi.Ensure();
             RuntimeGeometryDebugPanel.Ensure(camera);
             RuntimeGraphicsSettingsPanel.Ensure(camera);
 

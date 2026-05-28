@@ -44,10 +44,20 @@ namespace LegendsOfWarAndMagic.UI.MainMenu
             var background = RuntimeUiFactory.CreateImage(canvas.transform, "Background", new Color(0.055f, 0.072f, 0.078f, 1f));
             RuntimeUiFactory.Stretch(background.gameObject, Vector2.zero, Vector2.zero);
 
-            var glow = RuntimeUiFactory.CreateImage(canvas.transform, "Warm Backdrop", new Color(0.32f, 0.22f, 0.10f, 0.26f));
-            var glowRect = RuntimeUiFactory.Stretch(glow.gameObject, new Vector2(0f, 0f), new Vector2(0f, 0f));
-            glowRect.anchorMin = new Vector2(0f, 0f);
-            glowRect.anchorMax = new Vector2(1f, 1f);
+            var decoration = RuntimeUiFactory.CreateSpriteImage(
+                canvas.transform,
+                "Fantasy Backdrop",
+                RuntimeUiFactory.LoadingDecorationSprite,
+                new Color(1f, 0.82f, 0.54f, 0.24f),
+                Image.Type.Simple,
+                true);
+            var decorationRect = decoration.GetComponent<RectTransform>();
+            decorationRect.anchorMin = new Vector2(0.5f, 0.5f);
+            decorationRect.anchorMax = new Vector2(0.5f, 0.5f);
+            decorationRect.pivot = new Vector2(0.5f, 0.5f);
+            decorationRect.anchoredPosition = new Vector2(0f, 0f);
+            decorationRect.sizeDelta = new Vector2(1420f, 1060f);
+            decoration.raycastTarget = false;
 
             mainPanel = RuntimeUiFactory.CreateUiObject(canvas.transform, "Main Menu Panel");
             var panelRect = mainPanel.GetComponent<RectTransform>();
@@ -56,10 +66,11 @@ namespace LegendsOfWarAndMagic.UI.MainMenu
             panelRect.pivot = new Vector2(0.5f, 0.5f);
             panelRect.anchoredPosition = new Vector2(0f, 20f);
             panelRect.sizeDelta = new Vector2(720f, 720f);
-            RuntimeUiFactory.AddVerticalLayout(mainPanel, 28f, new RectOffset(70, 70, 46, 46));
+            RuntimeUiFactory.StyleMenuPanel(mainPanel);
+            RuntimeUiFactory.AddVerticalLayout(mainPanel, 24f, new RectOffset(82, 82, 56, 56));
 
-            var title = RuntimeUiFactory.CreateText(mainPanel.transform, "Title", "Legends of War and Magic", 58, new Color(0.97f, 0.86f, 0.56f, 1f), TextAnchor.MiddleCenter, FontStyle.Bold);
-            RuntimeUiFactory.AddLayoutElement(title.gameObject, 0f, 145f);
+            var title = RuntimeUiFactory.CreateText(mainPanel.transform, "Title", "Legends of War and Magic", 54, new Color(0.44f, 0.10f, 0.04f, 1f), TextAnchor.MiddleCenter, FontStyle.Bold);
+            RuntimeUiFactory.AddLayoutElement(title.gameObject, 0f, 138f);
 
             AddMenuButton("Новая игра", StartNewGame);
             AddMenuButton("Загрузить мир", OpenLoadWorlds);
@@ -113,15 +124,14 @@ namespace LegendsOfWarAndMagic.UI.MainMenu
             rect.anchoredPosition = new Vector2(0f, 20f);
             rect.sizeDelta = new Vector2(760f, 470f);
 
-            var image = settingsPanel.AddComponent<Image>();
-            image.color = new Color(0.10f, 0.12f, 0.12f, 0.94f);
+            RuntimeUiFactory.StyleMenuPanel(settingsPanel);
 
-            RuntimeUiFactory.AddVerticalLayout(settingsPanel, 30f, new RectOffset(70, 70, 50, 50));
+            RuntimeUiFactory.AddVerticalLayout(settingsPanel, 26f, new RectOffset(76, 76, 54, 54));
 
-            var title = RuntimeUiFactory.CreateText(settingsPanel.transform, "Settings Title", "Настройки", 46, new Color(0.97f, 0.86f, 0.56f, 1f), TextAnchor.MiddleCenter, FontStyle.Bold);
-            RuntimeUiFactory.AddLayoutElement(title.gameObject, 0f, 90f);
+            var title = RuntimeUiFactory.CreateHeader(settingsPanel.transform, "Settings Header", "Настройки", 40);
+            RuntimeUiFactory.AddLayoutElement(title.transform.parent.gameObject, 0f, 72f);
 
-            var message = RuntimeUiFactory.CreateText(settingsPanel.transform, "Settings Message", "Настройки появятся позже", 32, new Color(0.90f, 0.86f, 0.74f, 1f));
+            var message = RuntimeUiFactory.CreateText(settingsPanel.transform, "Settings Message", "Настройки появятся позже", 32, new Color(0.32f, 0.17f, 0.08f, 1f));
             RuntimeUiFactory.AddLayoutElement(message.gameObject, 0f, 130f);
 
             RuntimeUiFactory.CreateButton(settingsPanel.transform, "Back Button", "Назад", CloseSettings, new Vector2(340f, 72f));
@@ -259,12 +269,11 @@ namespace LegendsOfWarAndMagic.UI.MainMenu
             rect.anchoredPosition = new Vector2(0f, 20f);
             rect.sizeDelta = new Vector2(980f, 720f);
 
-            var image = loadPanel.AddComponent<Image>();
-            image.color = new Color(0.10f, 0.12f, 0.12f, 0.94f);
-            RuntimeUiFactory.AddVerticalLayout(loadPanel, 20f, new RectOffset(58, 58, 42, 42));
+            RuntimeUiFactory.StyleMenuPanel(loadPanel);
+            RuntimeUiFactory.AddVerticalLayout(loadPanel, 18f, new RectOffset(72, 72, 54, 58));
 
-            var title = RuntimeUiFactory.CreateText(loadPanel.transform, "Load Title", "Загрузить мир", 46, new Color(0.97f, 0.86f, 0.56f, 1f), TextAnchor.MiddleCenter, FontStyle.Bold);
-            RuntimeUiFactory.AddLayoutElement(title.gameObject, 0f, 76f);
+            var title = RuntimeUiFactory.CreateHeader(loadPanel.transform, "Load Header", "Загрузить мир", 40);
+            RuntimeUiFactory.AddLayoutElement(title.transform.parent.gameObject, 0f, 76f);
 
             loadListRoot = RuntimeUiFactory.CreateUiObject(loadPanel.transform, "Load List");
             RuntimeUiFactory.AddLayoutElement(loadListRoot, 0f, 480f);
@@ -281,28 +290,17 @@ namespace LegendsOfWarAndMagic.UI.MainMenu
             rect.anchorMax = new Vector2(0.5f, 0.5f);
             rect.pivot = new Vector2(0.5f, 0.5f);
             rect.sizeDelta = new Vector2(880f, 360f);
-            var image = progressPanel.AddComponent<Image>();
-            image.color = new Color(0.08f, 0.095f, 0.09f, 0.96f);
-            RuntimeUiFactory.AddVerticalLayout(progressPanel, 24f, new RectOffset(58, 58, 42, 42), TextAnchor.MiddleCenter);
+            RuntimeUiFactory.StyleMenuPanel(progressPanel);
+            RuntimeUiFactory.AddVerticalLayout(progressPanel, 20f, new RectOffset(72, 72, 48, 48), TextAnchor.MiddleCenter);
 
-            var title = RuntimeUiFactory.CreateText(progressPanel.transform, "Progress Title", "Новая игра", 44, new Color(0.97f, 0.86f, 0.56f, 1f), TextAnchor.MiddleCenter, FontStyle.Bold);
-            RuntimeUiFactory.AddLayoutElement(title.gameObject, 0f, 72f);
-            progressText = RuntimeUiFactory.CreateText(progressPanel.transform, "Progress Text", string.Empty, 30, new Color(0.92f, 0.88f, 0.74f, 1f), TextAnchor.MiddleCenter);
+            var title = RuntimeUiFactory.CreateHeader(progressPanel.transform, "Progress Header", "Новая игра", 38);
+            RuntimeUiFactory.AddLayoutElement(title.transform.parent.gameObject, 0f, 68f);
+            progressText = RuntimeUiFactory.CreateText(progressPanel.transform, "Progress Text", string.Empty, 30, new Color(0.30f, 0.16f, 0.08f, 1f), TextAnchor.MiddleCenter);
             RuntimeUiFactory.AddLayoutElement(progressText.gameObject, 0f, 82f);
 
-            var bar = RuntimeUiFactory.CreateUiObject(progressPanel.transform, "Progress Bar");
-            RuntimeUiFactory.AddLayoutElement(bar, 0f, 34f);
-            var barBackground = bar.AddComponent<Image>();
-            barBackground.color = new Color(0.05f, 0.06f, 0.055f, 1f);
+            RuntimeUiFactory.CreateLoadingProgressBar(progressPanel.transform, "Progress Bar", out progressFill, out progressFillRect, 52f);
 
-            var fillObject = RuntimeUiFactory.CreateUiObject(bar.transform, "Fill");
-            progressFillRect = RuntimeUiFactory.Stretch(fillObject, new Vector2(4f, 4f), new Vector2(-4f, -4f));
-            progressFillRect.anchorMin = new Vector2(0f, 0f);
-            progressFillRect.anchorMax = new Vector2(0f, 1f);
-            progressFill = fillObject.AddComponent<Image>();
-            progressFill.color = new Color(0.86f, 0.62f, 0.22f, 1f);
-
-            progressPercentText = RuntimeUiFactory.CreateText(progressPanel.transform, "Progress Percent", "0%", 24, new Color(0.78f, 0.73f, 0.62f, 1f), TextAnchor.MiddleCenter, FontStyle.Bold);
+            progressPercentText = RuntimeUiFactory.CreateText(progressPanel.transform, "Progress Percent", "0%", 24, new Color(0.48f, 0.25f, 0.10f, 1f), TextAnchor.MiddleCenter, FontStyle.Bold);
             RuntimeUiFactory.AddLayoutElement(progressPercentText.gameObject, 0f, 42f);
         }
 
@@ -329,7 +327,7 @@ namespace LegendsOfWarAndMagic.UI.MainMenu
             var worlds = WorldRuntimeServices.CreateWorldService().ListSavedWorlds();
             if (worlds.Count == 0)
             {
-                var empty = RuntimeUiFactory.CreateText(loadListRoot.transform, "No Worlds", "Сохранённых миров пока нет", 30, new Color(0.90f, 0.86f, 0.74f, 1f));
+                var empty = RuntimeUiFactory.CreateText(loadListRoot.transform, "No Worlds", "Сохранённых миров пока нет", 30, new Color(0.30f, 0.16f, 0.08f, 1f));
                 RuntimeUiFactory.AddLayoutElement(empty.gameObject, 0f, 90f);
                 return;
             }
@@ -343,13 +341,12 @@ namespace LegendsOfWarAndMagic.UI.MainMenu
         private void AddWorldLoadRow(WorldSaveSummary summary)
         {
             var row = RuntimeUiFactory.CreateUiObject(loadListRoot.transform, $"{summary.WorldName} Row");
-            var image = row.AddComponent<Image>();
-            image.color = new Color(0.08f, 0.10f, 0.10f, 0.92f);
+            RuntimeUiFactory.StyleSection(row);
             RuntimeUiFactory.AddLayoutElement(row, 0f, 92f);
             RuntimeUiFactory.AddHorizontalLayout(row, 18f, new RectOffset(18, 18, 10, 10), TextAnchor.MiddleCenter);
 
             var labelText = $"{summary.WorldName}\nSeed {summary.Seed} · {summary.ShapeType} · {summary.CreatedUtc:yyyy-MM-dd HH:mm}";
-            var label = RuntimeUiFactory.CreateText(row.transform, "World Summary", labelText, 24, new Color(0.92f, 0.86f, 0.68f, 1f), TextAnchor.MiddleLeft, FontStyle.Bold);
+            var label = RuntimeUiFactory.CreateText(row.transform, "World Summary", labelText, 24, new Color(0.29f, 0.15f, 0.07f, 1f), TextAnchor.MiddleLeft, FontStyle.Bold);
             RuntimeUiFactory.AddLayoutElement(label.gameObject, 600f, 72f);
             RuntimeUiFactory.CreateButton(row.transform, "Load Button", "Загрузить", () => LoadWorld(summary), new Vector2(240f, 62f));
         }
@@ -418,15 +415,7 @@ namespace LegendsOfWarAndMagic.UI.MainMenu
             }
 
             var normalized = Mathf.Clamp01(progress);
-            if (progressFill != null)
-            {
-                progressFill.enabled = normalized > 0.001f;
-            }
-
-            if (progressFillRect != null)
-            {
-                progressFillRect.anchorMax = new Vector2(normalized, 1f);
-            }
+            RuntimeUiFactory.SetProgressFill(progressFill, progressFillRect, normalized);
 
             if (progressPercentText != null)
             {

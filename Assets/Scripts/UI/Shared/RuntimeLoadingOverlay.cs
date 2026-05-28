@@ -88,6 +88,21 @@ namespace LegendsOfWarAndMagic.UI.Shared
             var backdrop = panel.AddComponent<Image>();
             backdrop.color = new Color(0.025f, 0.03f, 0.028f, 0.86f);
 
+            var decoration = RuntimeUiFactory.CreateSpriteImage(
+                panel.transform,
+                "Loading Decoration",
+                RuntimeUiFactory.LoadingDecorationSprite,
+                new Color(1f, 0.84f, 0.58f, 0.30f),
+                Image.Type.Simple,
+                true);
+            var decorationRect = decoration.GetComponent<RectTransform>();
+            decorationRect.anchorMin = new Vector2(0.5f, 0.5f);
+            decorationRect.anchorMax = new Vector2(0.5f, 0.5f);
+            decorationRect.pivot = new Vector2(0.5f, 0.5f);
+            decorationRect.anchoredPosition = new Vector2(0f, 18f);
+            decorationRect.sizeDelta = new Vector2(1220f, 920f);
+            decoration.raycastTarget = false;
+
             var box = RuntimeUiFactory.CreateUiObject(panel.transform, "Loading Box");
             var boxRect = box.GetComponent<RectTransform>();
             boxRect.anchorMin = new Vector2(0.5f, 0.5f);
@@ -95,38 +110,27 @@ namespace LegendsOfWarAndMagic.UI.Shared
             boxRect.pivot = new Vector2(0.5f, 0.5f);
             boxRect.sizeDelta = new Vector2(820f, 260f);
 
-            var boxImage = box.AddComponent<Image>();
-            boxImage.color = new Color(0.08f, 0.095f, 0.085f, 0.97f);
-            RuntimeUiFactory.AddVerticalLayout(box, 22f, new RectOffset(52, 52, 36, 36), TextAnchor.MiddleCenter);
+            RuntimeUiFactory.StyleMenuPanel(box);
+            RuntimeUiFactory.AddVerticalLayout(box, 20f, new RectOffset(64, 64, 42, 42), TextAnchor.MiddleCenter);
 
             messageText = RuntimeUiFactory.CreateText(
                 box.transform,
                 "Message",
                 "Загрузка...",
                 34,
-                new Color(0.96f, 0.90f, 0.74f, 1f),
+                new Color(0.34f, 0.15f, 0.07f, 1f),
                 TextAnchor.MiddleCenter,
                 FontStyle.Bold);
             RuntimeUiFactory.AddLayoutElement(messageText.gameObject, 0f, 78f);
 
-            var bar = RuntimeUiFactory.CreateUiObject(box.transform, "Progress Bar");
-            RuntimeUiFactory.AddLayoutElement(bar, 0f, 34f);
-            var barImage = bar.AddComponent<Image>();
-            barImage.color = new Color(0.04f, 0.05f, 0.045f, 1f);
-
-            var fill = RuntimeUiFactory.CreateUiObject(bar.transform, "Fill");
-            progressFillRect = RuntimeUiFactory.Stretch(fill, new Vector2(4f, 4f), new Vector2(-4f, -4f));
-            progressFillRect.anchorMin = new Vector2(0f, 0f);
-            progressFillRect.anchorMax = new Vector2(0f, 1f);
-            progressFill = fill.AddComponent<Image>();
-            progressFill.color = new Color(0.86f, 0.62f, 0.22f, 1f);
+            RuntimeUiFactory.CreateLoadingProgressBar(box.transform, "Progress Bar", out progressFill, out progressFillRect, 56f);
 
             percentText = RuntimeUiFactory.CreateText(
                 box.transform,
                 "Percent",
                 "0%",
                 22,
-                new Color(0.78f, 0.73f, 0.62f, 1f),
+                new Color(0.48f, 0.25f, 0.10f, 1f),
                 TextAnchor.MiddleCenter,
                 FontStyle.Bold);
             RuntimeUiFactory.AddLayoutElement(percentText.gameObject, 0f, 38f);
@@ -149,15 +153,7 @@ namespace LegendsOfWarAndMagic.UI.Shared
             }
 
             var normalized = Mathf.Clamp01(progress);
-            if (progressFill != null)
-            {
-                progressFill.enabled = normalized > 0.001f;
-            }
-
-            if (progressFillRect != null)
-            {
-                progressFillRect.anchorMax = new Vector2(normalized, 1f);
-            }
+            RuntimeUiFactory.SetProgressFill(progressFill, progressFillRect, normalized);
 
             if (percentText != null)
             {

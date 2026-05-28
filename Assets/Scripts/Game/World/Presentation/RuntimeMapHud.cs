@@ -85,13 +85,22 @@ namespace LegendsOfWarAndMagic.Game.World.Presentation
             var background = panel.AddComponent<Image>();
             background.color = new Color(0.03f, 0.035f, 0.03f, 0.90f);
 
-            var mapObject = RuntimeUiFactory.CreateUiObject(panel.transform, "Map Image");
+            var frame = RuntimeUiFactory.CreateUiObject(panel.transform, "Map Frame");
+            var frameRect = frame.GetComponent<RectTransform>();
+            frameRect.anchorMin = new Vector2(0.5f, 0.5f);
+            frameRect.anchorMax = new Vector2(0.5f, 0.5f);
+            frameRect.pivot = new Vector2(0.5f, 0.5f);
+            frameRect.sizeDelta = new Vector2(1480f, 960f);
+            frameRect.anchoredPosition = new Vector2(0f, -10f);
+            RuntimeUiFactory.StyleMenuPanel(frame);
+
+            var mapObject = RuntimeUiFactory.CreateUiObject(frame.transform, "Map Image");
             var mapRect = mapObject.GetComponent<RectTransform>();
-            mapRect.anchorMin = new Vector2(0.5f, 0.5f);
-            mapRect.anchorMax = new Vector2(0.5f, 0.5f);
+            mapRect.anchorMin = Vector2.zero;
+            mapRect.anchorMax = Vector2.one;
             mapRect.pivot = new Vector2(0.5f, 0.5f);
-            mapRect.sizeDelta = new Vector2(1320f, 860f);
-            mapRect.anchoredPosition = new Vector2(0f, -10f);
+            mapRect.offsetMin = new Vector2(72f, 66f);
+            mapRect.offsetMax = new Vector2(-72f, -66f);
             mapImage = mapObject.AddComponent<Image>();
             mapImage.color = Color.white;
             mapImage.preserveAspect = true;
@@ -176,9 +185,12 @@ namespace LegendsOfWarAndMagic.Game.World.Presentation
             rect.anchoredPosition = Vector2.zero;
 
             var image = markerObject.AddComponent<Image>();
-            image.color = location.IsStartLocation
-                ? new Color(0.95f, 0.74f, 0.22f, 0.98f)
-                : new Color(0.16f, 0.09f, 0.04f, 0.95f);
+            RuntimeUiFactory.ApplySprite(
+                image,
+                location.IsStartLocation ? RuntimeUiFactory.AcceptIconSprite : RuntimeUiFactory.QuestProgressSlotSprite,
+                location.IsStartLocation ? new Color(1f, 0.93f, 0.56f, 1f) : new Color(0.75f, 0.22f, 0.12f, 1f),
+                Image.Type.Simple,
+                true);
             var button = markerObject.AddComponent<Button>();
             button.targetGraphic = image;
             button.onClick.AddListener(() =>
