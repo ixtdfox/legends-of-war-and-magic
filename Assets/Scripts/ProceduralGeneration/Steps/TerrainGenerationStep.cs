@@ -58,6 +58,11 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
             return Mathf.ClosestPowerOfTwo(clamped - 1) + 1;
         }
 
+        public static float[,] BuildPreviewHeightMap(int requestedResolution, ProceduralLocationSettings settings, int seed)
+        {
+            return BuildHeightMap(SanitizeHeightmapResolution(requestedResolution), settings, seed);
+        }
+
         private static float[,] BuildHeightMap(int resolution, ProceduralLocationSettings settings, int seed)
         {
             var heights = new float[resolution, resolution];

@@ -1,5 +1,6 @@
 using UnityEngine;
 using UnityEngine.InputSystem;
+using LegendsOfWarAndMagic.UI.Shared;
 
 namespace LegendsOfWarAndMagic.Game.Player
 {
@@ -47,6 +48,11 @@ namespace LegendsOfWarAndMagic.Game.Player
 
         private void Update()
         {
+            if (RuntimeInputBlocker.IsBlocked)
+            {
+                return;
+            }
+
             HandleLook();
 
             var moveInput = ReadMoveInput();

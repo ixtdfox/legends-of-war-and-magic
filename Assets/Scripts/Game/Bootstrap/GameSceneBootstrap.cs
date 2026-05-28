@@ -1,8 +1,15 @@
+using System.Collections;
 using LegendsOfWarAndMagic.Diagnostics;
+using LegendsOfWarAndMagic.Game.World.Application;
+using LegendsOfWarAndMagic.Game.World.Domain;
+using LegendsOfWarAndMagic.Game.World.Infrastructure.Unity;
+using LegendsOfWarAndMagic.Game.World.Presentation;
+using LegendsOfWarAndMagic.Generator.Location;
 using LegendsOfWarAndMagic.Game.Player;
 using LegendsOfWarAndMagic.ProceduralGeneration;
 using LegendsOfWarAndMagic.ProceduralGeneration.Config;
 using LegendsOfWarAndMagic.ProceduralGeneration.Runtime;
+using LegendsOfWarAndMagic.UI.Shared;
 using UnityEngine;
 
 namespace LegendsOfWarAndMagic.Game.Bootstrap
@@ -15,10 +22,61 @@ namespace LegendsOfWarAndMagic.Game.Bootstrap
         private const float PlayerRadius = 0.4f;
         private const float PlayerEyeHeight = 1.62f;
 
-        private void Start()
+        private IEnumerator Start()
         {
             EnsureLighting();
 
+            if (!GeneratedWorldSession.HasWorld)
+            {
+                GeneratedWorldRuntimeState.TryRestoreSession();
+            }
+
+            if (GeneratedWorldSession.HasWorld && GeneratedWorldSession.CurrentLocation != null)
+            {
+                yield return BootstrapGeneratedWorldLocation();
+                yield break;
+            }
+
+            BootstrapLegacySingleLocation();
+        }
+
+        private IEnumerator BootstrapGeneratedWorldLocation()
+        {
+            var world = GeneratedWorldSession.CurrentWorld;
+            var location = GeneratedWorldSession.CurrentLocation;
+            RuntimeLoadingOverlay.Show($"Загружаем «{location.Name.Value}»...", 0.08f);
+            yield return null;
+
+            RuntimeLoadingOverlay.SetProgress("Готовим настройки локации...", 0.18f);
+            var settings = LocationTerrainSettingsFactory.Create(location);
+            yield return null;
+
+            RuntimeLoadingOverlay.SetProgress("Строим terrain и окружение...", 0.36f);
+            yield return null;
+
+            var generator = EnsureGenerator();
+            generator.GenerateOnStart = false;
+            generator.GenerateFromSettings(settings, location.TerrainSeed);
+            RuntimeLoadingOverlay.SetProgress("Расставляем игрока и переходы...", 0.76f);
+            yield return null;
+
+            var spawnPoint = FindEntrySpawnPoint(generator.GeneratedTerrain, settings, GeneratedWorldSession.EntryDirection);
+            var player = CreatePlayer(spawnPoint);
+            var camera = CreateFirstPersonCamera(player);
+            RuntimeMapHud.Ensure();
+            LocationTransitionPromptUI.Ensure();
+            CreateGatewayTriggers(location, generator.GeneratedTerrain, settings);
+            RuntimeGeometryDebugPanel.Ensure(camera);
+            RuntimeGraphicsSettingsPanel.Ensure(camera);
+            RuntimeLoadingOverlay.SetProgress("Готово", 1f);
+            yield return null;
+            RuntimeLoadingOverlay.Hide();
+
+            Debug.Log($"Generated world location ready. World={world.Name.Value} ({world.Id.Value}), Location={location.Name.Value}, Seed={location.TerrainSeed}, Spawn={spawnPoint}. {generator.LastGenerationSummary}");
+        }
+
+        private void BootstrapLegacySingleLocation()
+        {
             var request = MapGenerationSession.GetRequestOrDefault();
             var mappedSettings = MapGenerationPresetMapper.Build(request);
             var generator = EnsureGenerator();
@@ -94,6 +152,40 @@ namespace LegendsOfWarAndMagic.Game.Bootstrap
             return new Vector3(0f, settings.TerrainHeight + 3f, 0f);
         }
 
+        private static Vector3 FindEntrySpawnPoint(Terrain terrain, ProceduralLocationSettings settings, WorldDirection entryDirection)
+        {
+            if (terrain == null || terrain.terrainData == null || settings == null)
+            {
+                return new Vector3(0f, 10f, 0f);
+            }
+
+            var bounds = settings.GetWorldBounds();
+            var candidate = entryDirection switch
+            {
+                WorldDirection.North => new Vector3(0f, 0f, bounds.extents.z * 0.82f),
+                WorldDirection.South => new Vector3(0f, 0f, -bounds.extents.z * 0.82f),
+                WorldDirection.East => new Vector3(bounds.extents.x * 0.82f, 0f, 0f),
+                WorldDirection.West => new Vector3(-bounds.extents.x * 0.82f, 0f, 0f),
+                _ => Vector3.zero
+            };
+
+            for (var radius = 0; radius <= 80; radius += 10)
+            {
+                for (var i = 0; i < 12; i++)
+                {
+                    var angle = i / 12f * Mathf.PI * 2f;
+                    var x = candidate.x + Mathf.Cos(angle) * radius;
+                    var z = candidate.z + Mathf.Sin(angle) * radius;
+                    if (TrySampleTerrain(terrain, x, z, out var point, out var slope) && slope <= 42f)
+                    {
+                        return point + Vector3.up * 0.2f;
+                    }
+                }
+            }
+
+            return FindSafeSpawnPoint(terrain, settings);
+        }
+
         private static bool TrySampleTerrain(Terrain terrain, float worldX, float worldZ, out Vector3 point, out float slope)
         {
             var terrainPosition = terrain.transform.position;
@@ -116,6 +208,39 @@ namespace LegendsOfWarAndMagic.Game.Bootstrap
             point = new Vector3(worldX, y, worldZ);
             slope = Vector3.Angle(normal, Vector3.up);
             return true;
+        }
+
+        private static void CreateGatewayTriggers(WorldLocation location, Terrain terrain, ProceduralLocationSettings settings)
+        {
+            if (location == null || terrain == null || terrain.terrainData == null || settings == null)
+            {
+                return;
+            }
+
+            var root = new GameObject("Location Gateways").transform;
+            var terrainPosition = terrain.transform.position;
+            var terrainSize = terrain.terrainData.size;
+            var transitionService = new LocationSceneLoader();
+
+            foreach (var gateway in location.Gateways)
+            {
+                var rect = gateway.GatewayAreaNormalized;
+                var centerX = terrainPosition.x + (rect.X + rect.Width * 0.5f) * terrainSize.x;
+                var centerZ = terrainPosition.z + (rect.Y + rect.Height * 0.5f) * terrainSize.z;
+                var triggerObject = new GameObject($"Gateway {gateway.ExitDirection} to {gateway.ToLocationId.Value}");
+                triggerObject.transform.SetParent(root, false);
+                triggerObject.transform.position = new Vector3(centerX, terrainPosition.y + terrainSize.y * 0.5f, centerZ);
+
+                var collider = triggerObject.AddComponent<BoxCollider>();
+                collider.isTrigger = true;
+                collider.size = new Vector3(
+                    Mathf.Max(32f, rect.Width * terrainSize.x),
+                    terrainSize.y + 80f,
+                    Mathf.Max(32f, rect.Height * terrainSize.z));
+
+                var trigger = triggerObject.AddComponent<LocationBoundaryTrigger>();
+                trigger.Configure(location, gateway, transitionService);
+            }
         }
 
         private static GameObject CreatePlayer(Vector3 spawnPoint)

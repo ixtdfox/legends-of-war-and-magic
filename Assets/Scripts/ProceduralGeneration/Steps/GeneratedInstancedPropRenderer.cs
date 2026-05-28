@@ -117,12 +117,14 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
             }
 
             var cameraPosition = camera.transform.position;
+            var frustumPlanes = GeometryUtility.CalculateFrustumPlanes(camera);
             var batchCount = 0;
             var settings = ResolveForestLodSettings();
             for (var i = 0; i < drawGroups.Count; i++)
             {
                 batchCount += drawGroups[i].EstimateBatchCount(
                     cameraPosition,
+                    frustumPlanes,
                     settings,
                     IsRuntimeCategoryVisible(drawGroups[i].VisibilityCategory));
             }
@@ -151,11 +153,13 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
             var settings = ResolveForestLodSettings();
             var hasCamera = camera != null;
             var cameraPosition = hasCamera ? camera.transform.position : Vector3.zero;
+            var frustumPlanes = hasCamera ? GeometryUtility.CalculateFrustumPlanes(camera) : null;
             for (var i = 0; i < drawGroups.Count; i++)
             {
                 drawGroups[i].AddDiagnostic(
                     cameraPosition,
                     hasCamera,
+                    frustumPlanes,
                     settings,
                     IsRuntimeCategoryVisible(drawGroups[i].VisibilityCategory),
                     diagnostics);
@@ -274,11 +278,13 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
 
             var settings = ResolveForestLodSettings();
             var cameraPosition = camera.transform.position;
+            var frustumPlanes = GeometryUtility.CalculateFrustumPlanes(camera);
             for (var i = 0; i < drawGroups.Count; i++)
             {
                 drawGroups[i].Draw(
                     camera,
                     cameraPosition,
+                    frustumPlanes,
                     settings,
                     IsRuntimeCategoryVisible(drawGroups[i].VisibilityCategory));
             }
@@ -889,25 +895,30 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                 }
             }
 
-            public int EstimateBatchCount(Vector3 cameraPosition, ForestLodSettings settings, bool categoryVisible)
+            public int EstimateBatchCount(
+                Vector3 cameraPosition,
+                Plane[] frustumPlanes,
+                ForestLodSettings settings,
+                bool categoryVisible)
             {
                 if (!categoryVisible)
                 {
                     return 0;
                 }
 
-                var visibleCount = CountVisible(cameraPosition, true, settings);
+                var visibleCount = CountVisible(cameraPosition, true, frustumPlanes, settings);
                 return Mathf.CeilToInt(visibleCount / (float)MaxInstancesPerBatch);
             }
 
             public void AddDiagnostic(
                 Vector3 cameraPosition,
                 bool hasCamera,
+                Plane[] frustumPlanes,
                 ForestLodSettings settings,
                 bool categoryVisible,
                 IList<GeneratedInstancedPropDiagnostic> diagnostics)
             {
-                var visibleCount = categoryVisible ? CountVisible(cameraPosition, hasCamera, settings) : 0;
+                var visibleCount = categoryVisible ? CountVisible(cameraPosition, hasCamera, frustumPlanes, settings) : 0;
                 diagnostics.Add(new GeneratedInstancedPropDiagnostic(
                     SourcePrefabsText,
                     mesh != null ? mesh.name : string.Empty,
@@ -923,7 +934,12 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                     visibilityCategory));
             }
 
-            public void Draw(Camera camera, Vector3 cameraPosition, ForestLodSettings settings, bool categoryVisible)
+            public void Draw(
+                Camera camera,
+                Vector3 cameraPosition,
+                Plane[] frustumPlanes,
+                ForestLodSettings settings,
+                bool categoryVisible)
             {
                 if (!categoryVisible || mesh == null || material == null || matrices.Count == 0)
                 {
@@ -951,6 +967,11 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                     if (activeLod == lodIndex)
                     {
                         var instanceBounds = TransformBounds(mesh.bounds, matrix);
+                        if (!IsInsideFrustum(instanceBounds, frustumPlanes))
+                        {
+                            continue;
+                        }
+
                         visibleMatrices[visibleCount++] = matrix;
                         Encapsulate(instanceBounds, ref visibleBounds, ref hasBounds);
 
@@ -1046,7 +1067,11 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                 }
             }
 
-            private int CountVisible(Vector3 cameraPosition, bool hasCamera, ForestLodSettings settings)
+            private int CountVisible(
+                Vector3 cameraPosition,
+                bool hasCamera,
+                Plane[] frustumPlanes,
+                ForestLodSettings settings)
             {
                 if (!hasCamera)
                 {
@@ -1056,13 +1081,30 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                 var visibleCount = 0;
                 for (var i = 0; i < matrices.Count; i++)
                 {
-                    if (ResolveActiveLod(i, cameraPosition, true, settings) == lodIndex)
+                    if (ResolveActiveLod(i, cameraPosition, true, settings) != lodIndex)
                     {
-                        visibleCount++;
+                        continue;
                     }
+
+                    if (!IsInsideFrustum(TransformBounds(mesh.bounds, matrices[i]), frustumPlanes))
+                    {
+                        continue;
+                    }
+
+                    visibleCount++;
                 }
 
                 return visibleCount;
+            }
+
+            private static bool IsInsideFrustum(Bounds bounds, Plane[] frustumPlanes)
+            {
+                if (frustumPlanes == null || frustumPlanes.Length == 0)
+                {
+                    return true;
+                }
+
+                return GeometryUtility.TestPlanesAABB(frustumPlanes, bounds);
             }
 
             private int ResolveActiveLod(int index, Vector3 cameraPosition, bool hasCamera, ForestLodSettings settings)

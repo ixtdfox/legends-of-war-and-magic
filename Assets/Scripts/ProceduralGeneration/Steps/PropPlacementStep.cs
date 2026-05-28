@@ -841,7 +841,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                 bounds.Encapsulate(renderer.bounds);
             }
 
-            return hasBounds ? bounds : null;
+            return hasBounds ? bounds : (Bounds?)null;
         }
 
         private static Bounds? CalculateLocalRendererBounds(GameObject instance)
@@ -869,7 +869,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                 EncapsulateLocalBoundsCorner(root, new Vector3(renderer.bounds.max.x, renderer.bounds.max.y, renderer.bounds.min.z), ref localBounds, ref hasBounds);
             }
 
-            return hasBounds ? localBounds : null;
+            return hasBounds ? localBounds : (Bounds?)null;
         }
 
         private static void EncapsulateLocalBoundsCorner(Transform root, Vector3 worldCorner, ref Bounds localBounds, ref bool hasBounds)

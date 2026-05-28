@@ -30,14 +30,52 @@ namespace LegendsOfWarAndMagic.UI.Shared
 
         public static void EnsureEventSystem()
         {
-            if (Object.FindFirstObjectByType<EventSystem>() != null)
+            var existing = Object.FindFirstObjectByType<EventSystem>();
+            if (existing != null)
             {
+                ConfigureInputModule(existing);
                 return;
             }
 
             var eventSystem = new GameObject("EventSystem");
-            eventSystem.AddComponent<EventSystem>();
-            eventSystem.AddComponent<InputSystemUIInputModule>();
+            ConfigureInputModule(eventSystem.AddComponent<EventSystem>());
+        }
+
+        private static void ConfigureInputModule(EventSystem eventSystem)
+        {
+            if (eventSystem == null)
+            {
+                return;
+            }
+
+            var modules = eventSystem.GetComponents<BaseInputModule>();
+            for (var i = 0; i < modules.Length; i++)
+            {
+                if (modules[i] == null || modules[i] is InputSystemUIInputModule)
+                {
+                    continue;
+                }
+
+                if (Application.isPlaying)
+                {
+                    Object.Destroy(modules[i]);
+                }
+                else
+                {
+                    Object.DestroyImmediate(modules[i]);
+                }
+            }
+
+            var inputModule = eventSystem.GetComponent<InputSystemUIInputModule>();
+            if (inputModule == null)
+            {
+                inputModule = eventSystem.gameObject.AddComponent<InputSystemUIInputModule>();
+            }
+
+            if (inputModule.actionsAsset == null)
+            {
+                inputModule.AssignDefaultActions();
+            }
         }
 
         public static RectTransform Stretch(GameObject target, Vector2 offsetMin, Vector2 offsetMax)
@@ -75,6 +113,7 @@ namespace LegendsOfWarAndMagic.UI.Shared
             label.color = color;
             label.alignment = alignment;
             label.fontStyle = fontStyle;
+            label.raycastTarget = false;
             label.resizeTextForBestFit = true;
             label.resizeTextMinSize = Mathf.Max(10, Mathf.RoundToInt(size * 0.55f));
             label.resizeTextMaxSize = size;

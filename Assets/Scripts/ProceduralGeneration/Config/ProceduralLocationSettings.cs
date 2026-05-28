@@ -387,6 +387,11 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Config
             forestRendering.Configure(qualityPreset, usePresetValues);
         }
 
+        public void ConfigureForestLodSettings(ForestLodSettings settings)
+        {
+            forestRendering.ConfigureCustomLod(settings);
+        }
+
         public void ConfigureGpuGrass(GpuGrassSettings settings)
         {
             forestRendering.ConfigureGpuGrass(settings);

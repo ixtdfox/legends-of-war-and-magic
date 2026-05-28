@@ -202,7 +202,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Runtime
             return new WaterPreset(Mathf.Max(1f, terrainHeight * factor), new Color(0.06f, 0.32f, 0.53f, 0.78f));
         }
 
-        private static IReadOnlyList<PropCategoryPlacementSettings> BuildPropCategories(
+        public static IReadOnlyList<PropCategoryPlacementSettings> BuildPropCategories(
             ProceduralLocationSettings settings,
             PropDensityOption densityOption,
             float treeDensity,
