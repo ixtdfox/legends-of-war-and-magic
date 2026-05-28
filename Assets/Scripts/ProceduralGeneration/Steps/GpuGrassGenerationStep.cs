@@ -15,7 +15,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
             }
 
             var grassSettings = settings.GpuGrassSettings;
-            if (context.GeneratedTerrain == null || grassSettings == null || !grassSettings.Enabled)
+            if (context.TerrainChunkStreamer != null || context.GeneratedTerrain == null || grassSettings == null || !grassSettings.Enabled)
             {
                 return;
             }

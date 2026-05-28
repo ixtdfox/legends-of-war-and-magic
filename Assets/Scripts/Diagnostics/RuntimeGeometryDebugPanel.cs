@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Reflection;
 using System.Text;
+using LegendsOfWarAndMagic.ProceduralGeneration.Steps;
 using LegendsOfWarAndMagic.UI.Shared;
 using UnityEngine;
 using UnityEngine.InputSystem;
@@ -15,7 +16,7 @@ namespace LegendsOfWarAndMagic.Diagnostics
         private const int TypeCapacity = 8;
 
         [SerializeField] private Camera targetCamera;
-        [SerializeField] private bool visibleOnStart = true;
+        [SerializeField] private bool visibleOnStart;
         [SerializeField] private float updateInterval = 0.5f;
         [SerializeField] private int topOffenderCount = 6;
 
@@ -132,6 +133,12 @@ namespace LegendsOfWarAndMagic.Diagnostics
             builder.AppendLine($"Camera: {camera.name}");
             builder.AppendLine($"FPS: {fps:0.0}  Frame: {Time.smoothDeltaTime * 1000f:0.0} ms  CPU/GPU: {FormatMs(cpuMs)} / {FormatMs(gpuMs)}");
             builder.AppendLine($"Unique visible: {FormatCount(snapshot.VisibleTriangles)} tris   {FormatCount(snapshot.VisibleVertices)} verts   shadow groups: {snapshot.ShadowCastingRecordCount}");
+            var chunkStreamer = FindFirstObjectByType<GeneratedTerrainChunkStreamer>();
+            if (chunkStreamer != null)
+            {
+                builder.AppendLine($"Terrain chunks: loaded {chunkStreamer.LoadedChunkCount}   pending {chunkStreamer.PendingLoadCount}   grid {chunkStreamer.ChunkCountX}x{chunkStreamer.ChunkCountZ}");
+            }
+
             if (editorStats.Available)
             {
                 builder.AppendLine($"Unity submitted: {FormatCount(editorStats.Triangles)} tris   {FormatCount(editorStats.Vertices)} verts   batches: {editorStats.Batches}   setpass: {editorStats.SetPassCalls}   casters: {editorStats.ShadowCasters}");

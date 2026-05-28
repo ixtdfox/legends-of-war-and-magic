@@ -134,11 +134,12 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Runtime
 
         private static SizePreset ResolveSize(MapSizeOption option)
         {
+            const float locationSize = ProceduralLocationSettings.DefaultLocationSizeMeters;
             return option switch
             {
-                MapSizeOption.Small => new SizePreset(500f, 500f, 257, 18f, 384),
-                MapSizeOption.Large => new SizePreset(1400f, 1400f, 513, 40f, 640),
-                _ => new SizePreset(900f, 900f, 513, 28f, 512)
+                MapSizeOption.Small => new SizePreset(locationSize, locationSize, 1025, 64f, 1024),
+                MapSizeOption.Large => new SizePreset(locationSize, locationSize, 1025, 96f, 1024),
+                _ => new SizePreset(locationSize, locationSize, 1025, 80f, 1024)
             };
         }
 

@@ -1,3 +1,5 @@
+using System;
+using System.Collections;
 using System.Collections.Generic;
 using LegendsOfWarAndMagic.ProceduralGeneration.Config;
 using LegendsOfWarAndMagic.ProceduralGeneration.Core;
@@ -13,19 +15,31 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
     {
         private const float MinTreeHeightMeters = 8f;
         private const float MaxTreeHeightMeters = 26f;
+        private const int AttemptsPerYield = 256;
 
         public void Execute(GenerationContext context)
         {
+            var routine = ExecuteRoutine(context, null);
+            while (routine.MoveNext())
+            {
+            }
+        }
+
+        public IEnumerator ExecuteRoutine(GenerationContext context, Action<string, float> progress)
+        {
             if (!context.Settings.EnablePropPlacement || context.Settings.PropCategories == null || context.Settings.PropCategories.Count == 0)
             {
-                return;
+                progress?.Invoke("Окружение не требуется", 1f);
+                yield break;
             }
 
+            var terrainSampler = context.TerrainSampler;
             var terrain = context.GeneratedTerrain;
-            if (terrain == null)
+            if (terrainSampler == null && terrain == null)
             {
-                Debug.LogWarning("Prop placement skipped because no generated terrain was found.");
-                return;
+                Debug.LogWarning("Prop placement skipped because no generated terrain sampler was found.");
+                progress?.Invoke("Окружение пропущено", 1f);
+                yield break;
             }
 
             var propsRoot = new GameObject("GeneratedProps").transform;
@@ -39,22 +53,46 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
             {
                 var workItem = placementQueue[i];
                 var random = new System.Random(unchecked(context.Seed * 486187739 + 97 + workItem.OriginalIndex * 104729));
-                PlaceCategory(context, workItem.Category, terrain, propsRoot, instancedRenderer, footprintGrid, random);
+                var categoryStart = placementQueue.Count == 0 ? 1f : i / (float)placementQueue.Count;
+                var categoryEnd = placementQueue.Count == 0 ? 1f : (i + 1) / (float)placementQueue.Count;
+                var routine = PlaceCategory(
+                    context,
+                    workItem.Category,
+                    terrainSampler,
+                    terrain,
+                    propsRoot,
+                    instancedRenderer,
+                    footprintGrid,
+                    random,
+                    (categoryName, categoryProgress) =>
+                    {
+                        var totalProgress = Mathf.Lerp(categoryStart, categoryEnd, Mathf.Clamp01(categoryProgress));
+                        progress?.Invoke($"Расставляем окружение: {categoryName}", totalProgress);
+                    });
+
+                while (routine.MoveNext())
+                {
+                    yield return null;
+                }
             }
+
+            progress?.Invoke("Окружение готово", 1f);
         }
 
-        private static void PlaceCategory(
+        private static IEnumerator PlaceCategory(
             GenerationContext context,
             PropCategoryPlacementSettings category,
+            IProceduralTerrainSampler terrainSampler,
             Terrain terrain,
             Transform propsRoot,
             GeneratedInstancedPropRenderer instancedRenderer,
             FootprintGrid2D footprintGrid,
-            System.Random random)
+            System.Random random,
+            Action<string, float> progress)
         {
             if (context.Settings.GpuGrassSettings.Enabled && category != null && category.Role == ProceduralPropRole.GroundGrass)
             {
-                return;
+                yield break;
             }
 
             if (category == null || !category.Enabled || category.Prefabs == null || category.Prefabs.Length == 0 || category.DensityPer10kSqm <= 0f)
@@ -64,17 +102,18 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                     Debug.LogWarning($"Prop category '{category.CategoryName}' was requested, but it has no prefabs. Terrain generation will continue without this category.");
                 }
 
-                return;
+                yield break;
             }
 
             var area = context.Settings.WorldWidth * context.Settings.WorldLength;
             var targetCount = Mathf.RoundToInt((area / 10000f) * category.DensityPer10kSqm);
             if (targetCount <= 0)
             {
-                return;
+                yield break;
             }
 
             var categoryName = string.IsNullOrWhiteSpace(category.CategoryName) ? "Props" : category.CategoryName;
+            progress?.Invoke(categoryName, 0f);
             var categoryRoot = new GameObject(categoryName).transform;
             categoryRoot.SetParent(propsRoot, false);
 
@@ -96,11 +135,19 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
 
             for (var attempt = 0; attempt < maxAttempts && accepted < targetCount; attempt++)
             {
+                if (attempt > 0 && attempt % AttemptsPerYield == 0)
+                {
+                    var attemptProgress = maxAttempts > 0 ? attempt / (float)maxAttempts : 1f;
+                    var acceptedProgress = targetCount > 0 ? accepted / (float)targetCount : 1f;
+                    progress?.Invoke(categoryName, Mathf.Max(attemptProgress * 0.86f, acceptedProgress));
+                    yield return null;
+                }
+
                 var candidate = ResolveCandidatePoint(random, minX, maxX, minZ, maxZ, category.Role, forestAnchors);
                 var x = candidate.x;
                 var z = candidate.y;
 
-                if (!TrySamplePoint(terrain, x, z, out var point, out var normal))
+                if (!TrySamplePoint(terrainSampler, terrain, x, z, out var point, out var normal))
                 {
                     context.RecordRejected(categoryName, "TerrainSample");
                     continue;
@@ -210,6 +257,8 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                     Debug.Log($"{summary} Generator-side draw distance culling enabled at {category.MaxDrawDistance:0.##} units.");
                 }
             }
+
+            progress?.Invoke(categoryName, 1f);
         }
 
         private static List<CategoryPlacementWork> BuildPlacementQueue(IReadOnlyList<PropCategoryPlacementSettings> categories)
@@ -285,7 +334,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
             float uniformScale,
             int instanceIndex)
         {
-            var instance = Object.Instantiate(prefab, position, Quaternion.identity, parent);
+            var instance = UnityEngine.Object.Instantiate(prefab, position, Quaternion.identity, parent);
             instance.name = $"{prefab.name}_{instanceIndex:D4}";
             PrepareSpawnedInstance(instance);
             instance.transform.rotation = Quaternion.Euler(0f, rotationY, 0f);
@@ -578,11 +627,11 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
 #if UNITY_EDITOR
             if (!Application.isPlaying)
             {
-                Object.DestroyImmediate(target);
+                UnityEngine.Object.DestroyImmediate(target);
                 return;
             }
 #endif
-            Object.Destroy(target);
+            UnityEngine.Object.Destroy(target);
         }
 
         private static void ValidateLodSetup(
@@ -985,8 +1034,19 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
             };
         }
 
-        private static bool TrySamplePoint(Terrain terrain, float worldX, float worldZ, out Vector3 point, out Vector3 normal)
+        private static bool TrySamplePoint(
+            IProceduralTerrainSampler terrainSampler,
+            Terrain terrain,
+            float worldX,
+            float worldZ,
+            out Vector3 point,
+            out Vector3 normal)
         {
+            if (terrainSampler != null)
+            {
+                return terrainSampler.TrySample(worldX, worldZ, out point, out normal);
+            }
+
             var terrainPos = terrain.transform.position;
             var localX = worldX - terrainPos.x;
             var localZ = worldZ - terrainPos.z;

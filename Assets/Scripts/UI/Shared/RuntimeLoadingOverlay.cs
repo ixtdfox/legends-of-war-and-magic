@@ -88,21 +88,6 @@ namespace LegendsOfWarAndMagic.UI.Shared
             var backdrop = panel.AddComponent<Image>();
             backdrop.color = new Color(0.025f, 0.03f, 0.028f, 0.86f);
 
-            var decoration = RuntimeUiFactory.CreateSpriteImage(
-                panel.transform,
-                "Loading Decoration",
-                RuntimeUiFactory.LoadingDecorationSprite,
-                new Color(1f, 0.84f, 0.58f, 0.30f),
-                Image.Type.Simple,
-                true);
-            var decorationRect = decoration.GetComponent<RectTransform>();
-            decorationRect.anchorMin = new Vector2(0.5f, 0.5f);
-            decorationRect.anchorMax = new Vector2(0.5f, 0.5f);
-            decorationRect.pivot = new Vector2(0.5f, 0.5f);
-            decorationRect.anchoredPosition = new Vector2(0f, 18f);
-            decorationRect.sizeDelta = new Vector2(1220f, 920f);
-            decoration.raycastTarget = false;
-
             var box = RuntimeUiFactory.CreateUiObject(panel.transform, "Loading Box");
             var boxRect = box.GetComponent<RectTransform>();
             boxRect.anchorMin = new Vector2(0.5f, 0.5f);

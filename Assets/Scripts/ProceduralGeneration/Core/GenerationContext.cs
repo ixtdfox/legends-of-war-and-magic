@@ -22,7 +22,10 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Core
         public Bounds WorldBounds { get; }
         public Transform GeneratedRoot { get; }
         public Terrain GeneratedTerrain { get; set; }
+        public IProceduralTerrainSampler TerrainSampler { get; set; }
+        public MonoBehaviour TerrainChunkStreamer { get; set; }
         public GameObject GeneratedWater { get; set; }
+        public IReadOnlyList<Terrain> GeneratedTerrains => generatedTerrains;
 
         public IReadOnlyDictionary<string, int> SpawnedByCategory => spawnedByCategory;
         public IReadOnlyDictionary<string, int> RejectedByReason => rejectedByReason;
@@ -68,9 +71,24 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Core
             terrainDetailSummaries[detailName] = new DetailLayerSummary(occupiedCells, totalDensity);
         }
 
+        public void AddGeneratedTerrain(Terrain terrain)
+        {
+            if (terrain == null || generatedTerrains.Contains(terrain))
+            {
+                return;
+            }
+
+            generatedTerrains.Add(terrain);
+            if (GeneratedTerrain == null)
+            {
+                GeneratedTerrain = terrain;
+            }
+        }
+
         private readonly Dictionary<string, int> spawnedByCategory = new();
         private readonly Dictionary<string, int> rejectedByReason = new();
         private readonly Dictionary<string, DetailLayerSummary> terrainDetailSummaries = new();
+        private readonly List<Terrain> generatedTerrains = new();
 
         public readonly struct DetailLayerSummary
         {

@@ -13,22 +13,39 @@ MonoBehaviour:
   m_Name: DefaultProceduralLocationSettings
   m_EditorClassIdentifier: 
   global:
-    worldWidth: 2000
-    worldLength: 2000
+    worldWidth: 4000
+    worldLength: 4000
   seed:
     seedMode: 0
     fixedSeed: 12345
   terrain:
-    heightmapResolution: 513
+    heightmapResolution: 1025
     terrainHeight: 220
     noiseScale: 320
     octaves: 5
     persistence: 0.45
     lacunarity: 2
     heightMultiplier: 1
+    landShape: 0
+    ridgeIntensity: 0.35
+    valleyIntensity: 0.25
+    cliffIntensity: 0.25
+    terraceStrength: 0.08
+    microReliefStrength: 0.12
     useEdgeFalloff: 1
     edgeFalloffStart: 0.82
     edgeFalloffStrength: 2.2
+  terrainChunks:
+    enabled: 1
+    chunkSize: 500
+    heightmapResolution: 129
+    loadRadiusChunks: 3
+    unloadBufferChunks: 1
+    initialLoadRadiusChunks: 0
+    bootstrapPreloadRadiusChunks: 3
+    maxChunkBuildsPerFrame: 1
+    maxChunkUnloadsPerFrame: 4
+    lodPixelErrors: {x: 4, y: 14, z: 34}
   props:
     enablePropPlacement: 1
     propCategories: []

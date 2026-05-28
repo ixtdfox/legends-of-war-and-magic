@@ -30,7 +30,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
             };
 
             terrainData.alphamapResolution = Mathf.Clamp(terrainData.heightmapResolution / 2, 64, 256);
-            PaintTerrain(terrainData, settings, seed);
+            PaintTerrain(terrain, settings, seed);
         }
 
         private static TerrainLayer ResolveLayer(
@@ -89,8 +89,10 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
             return layer;
         }
 
-        private static void PaintTerrain(TerrainData terrainData, ProceduralLocationSettings settings, int seed)
+        private static void PaintTerrain(Terrain terrain, ProceduralLocationSettings settings, int seed)
         {
+            var terrainData = terrain.terrainData;
+            var terrainPosition = terrain.transform.position;
             var width = terrainData.alphamapWidth;
             var height = terrainData.alphamapHeight;
             var layerCount = terrainData.terrainLayers.Length;
@@ -107,13 +109,17 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                 {
                     var nx = x / (float)(width - 1);
                     var ny = y / (float)(height - 1);
+                    var worldX = terrainPosition.x + nx * terrainData.size.x;
+                    var worldZ = terrainPosition.z + ny * terrainData.size.z;
+                    var worldNx = Mathf.InverseLerp(-settings.WorldWidth * 0.5f, settings.WorldWidth * 0.5f, worldX);
+                    var worldNz = Mathf.InverseLerp(-settings.WorldLength * 0.5f, settings.WorldLength * 0.5f, worldZ);
                     var normalizedHeight = terrainData.GetInterpolatedHeight(nx, ny) / terrainData.size.y;
                     var slope = Vector3.Angle(terrainData.GetInterpolatedNormal(nx, ny), Vector3.up);
 
-                    var broadNoise = Mathf.PerlinNoise(nx * 15.5f + seedA, ny * 15.5f + seedB);
-                    var fineNoise = Mathf.PerlinNoise(nx * 52.0f + seedB, ny * 52.0f + seedA);
-                    var patchNoise = Mathf.PerlinNoise(nx * 7.5f + seedB * 1.7f, ny * 7.5f + seedA * 1.7f);
-                    var ridgeNoise = Mathf.PerlinNoise(nx * 24.0f + seedA * 0.7f, ny * 24.0f + seedB * 0.7f);
+                    var broadNoise = Mathf.PerlinNoise(worldNx * 15.5f + seedA, worldNz * 15.5f + seedB);
+                    var fineNoise = Mathf.PerlinNoise(worldNx * 52.0f + seedB, worldNz * 52.0f + seedA);
+                    var patchNoise = Mathf.PerlinNoise(worldNx * 7.5f + seedB * 1.7f, worldNz * 7.5f + seedA * 1.7f);
+                    var ridgeNoise = Mathf.PerlinNoise(worldNx * 24.0f + seedA * 0.7f, worldNz * 24.0f + seedB * 0.7f);
                     var variation = (broadNoise - 0.5f) * 0.24f + (fineNoise - 0.5f) * 0.08f;
                     var aboveWater = normalizedHeight - waterLevel01;
 

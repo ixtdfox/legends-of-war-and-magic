@@ -335,11 +335,16 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                 return;
             }
 
-            cullingStopwatch.Restart();
-
             var cameraPosition = camera.transform.position;
             var farDistance = settings.FarVisualDistance + settings.ClusterSize;
             var farSqrDistance = farDistance * farDistance;
+            if (SqrDistanceXZ(terrainBounds, cameraPosition) > farSqrDistance)
+            {
+                return;
+            }
+
+            cullingStopwatch.Restart();
+
             GeometryUtility.CalculateFrustumPlanes(camera, frustumPlanes);
 
             for (var i = 0; i < clusters.Count; i++)
@@ -1188,6 +1193,15 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
         {
             var dx = a.x - b.x;
             var dz = a.z - b.z;
+            return dx * dx + dz * dz;
+        }
+
+        private static float SqrDistanceXZ(Bounds bounds, Vector3 point)
+        {
+            var closestX = Mathf.Clamp(point.x, bounds.min.x, bounds.max.x);
+            var closestZ = Mathf.Clamp(point.z, bounds.min.z, bounds.max.z);
+            var dx = point.x - closestX;
+            var dz = point.z - closestZ;
             return dx * dx + dz * dz;
         }
 

@@ -17,8 +17,8 @@ namespace LegendsOfWarAndMagic.Generator.Location
 
     public sealed class LocationGenerationConfig
     {
-        public int HeightmapResolution { get; set; } = 257;
-        public float WorldSize { get; set; } = 760f;
+        public int HeightmapResolution { get; set; } = 1025;
+        public float WorldSize { get; set; } = ProceduralLocationSettings.DefaultLocationSizeMeters;
         public float TreeDensity { get; set; } = 0.70f;
         public float GrassSaturation { get; set; } = 0.85f;
         public bool GenerateSceneData { get; set; } = true;
@@ -83,6 +83,7 @@ namespace LegendsOfWarAndMagic.Generator.Location
         public GeneratedLocationTerrain Generate(GeneratedWorld world, WorldLocation location, LocationGenerationConfig config)
         {
             var safeConfig = config ?? LocationGenerationConfig.CreateDefault();
+            var worldSize = ProceduralLocationSettings.DefaultLocationSizeMeters;
             var profile = LocationTerrainProfile.From(location, safeConfig);
             var dto = new LocationTerrainSaveDto
             {
@@ -91,8 +92,8 @@ namespace LegendsOfWarAndMagic.Generator.Location
                 biome = location.DominantBiome.ToString(),
                 locationType = location.Type.ToString(),
                 terrainSeed = location.TerrainSeed,
-                heightmapResolution = safeConfig.HeightmapResolution,
-                worldSize = safeConfig.WorldSize,
+                heightmapResolution = Mathf.Max(1025, safeConfig.HeightmapResolution),
+                worldSize = worldSize,
                 terrainHeight = profile.TerrainHeight,
                 waterLevel = profile.WaterLevel,
                 landShape = profile.LandShape.ToString(),
@@ -117,16 +118,17 @@ namespace LegendsOfWarAndMagic.Generator.Location
         public static ProceduralLocationSettings Create(WorldLocation location, LocationGenerationConfig config = null)
         {
             var safeConfig = config ?? LocationGenerationConfig.CreateDefault();
+            var worldSize = ProceduralLocationSettings.DefaultLocationSizeMeters;
             var settings = ScriptableObject.CreateInstance<ProceduralLocationSettings>();
             settings.name = $"Runtime Location Settings - {location.Name.Value}";
             settings.hideFlags = HideFlags.DontSave;
             settings.ConfigureAssetCatalog(ProceduralAssetCatalogResolver.LoadDefaultCatalog());
 
             var profile = LocationTerrainProfile.From(location, safeConfig);
-            settings.ConfigureGlobal(safeConfig.WorldSize, safeConfig.WorldSize);
+            settings.ConfigureGlobal(worldSize, worldSize);
             settings.ConfigureSeed(SeedMode.Fixed, location.TerrainSeed);
             settings.ConfigureTerrain(
-                safeConfig.HeightmapResolution,
+                Mathf.Max(1025, safeConfig.HeightmapResolution),
                 profile.TerrainHeight,
                 profile.NoiseScale,
                 profile.Octaves,

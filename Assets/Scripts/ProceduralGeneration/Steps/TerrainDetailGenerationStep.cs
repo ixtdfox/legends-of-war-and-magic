@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using LegendsOfWarAndMagic.ProceduralGeneration.Config;
 using LegendsOfWarAndMagic.ProceduralGeneration.Core;
@@ -16,7 +17,36 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
         public void Execute(GenerationContext context)
         {
             var settings = context.Settings;
-            var terrain = context.GeneratedTerrain;
+            if (settings == null || !settings.TerrainDetailsEnabled || context.TerrainChunkStreamer != null)
+            {
+                return;
+            }
+
+            var terrains = context.GeneratedTerrains;
+            if (terrains.Count == 0 && context.GeneratedTerrain != null)
+            {
+                ApplyToTerrain(settings, context.GeneratedTerrain, context.Seed, context.RecordTerrainDetailLayer);
+                return;
+            }
+
+            for (var i = 0; i < terrains.Count; i++)
+            {
+                Action<string, int, int> recorder = null;
+                if (i == 0)
+                {
+                    recorder = context.RecordTerrainDetailLayer;
+                }
+
+                ApplyToTerrain(settings, terrains[i], context.Seed, recorder);
+            }
+        }
+
+        public static void ApplyToTerrain(
+            ProceduralLocationSettings settings,
+            Terrain terrain,
+            int seed,
+            Action<string, int, int> recordDetailLayer)
+        {
             if (settings == null || terrain == null || terrain.terrainData == null || !settings.TerrainDetailsEnabled)
             {
                 return;
@@ -30,14 +60,14 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
             }
 
             var terrainData = terrain.terrainData;
-            var resolution = Mathf.Clamp(settings.TerrainDetailResolution, 32, 2048);
+            var resolution = ResolveDetailResolution(settings, terrainData);
             var patchResolution = Mathf.Clamp(settings.TerrainDetailResolutionPerPatch, 8, 128);
             terrainData.SetDetailResolution(resolution, patchResolution);
 
             var prototypes = new DetailPrototype[detailDefinitions.Count];
             for (var i = 0; i < detailDefinitions.Count; i++)
             {
-                prototypes[i] = detailDefinitions[i].CreatePrototype(context.Seed + i * 7919);
+                prototypes[i] = detailDefinitions[i].CreatePrototype(seed + i * 7919);
             }
 
             terrainData.detailPrototypes = prototypes;
@@ -49,8 +79,22 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
 
             for (var layer = 0; layer < detailDefinitions.Count; layer++)
             {
-                FillDetailLayer(context, terrainData, detailDefinitions[layer], layer, resolution);
+                FillDetailLayer(settings, seed, terrain, terrainData, detailDefinitions[layer], layer, resolution, recordDetailLayer);
             }
+        }
+
+        private static int ResolveDetailResolution(ProceduralLocationSettings settings, TerrainData terrainData)
+        {
+            var requested = Mathf.Clamp(settings.TerrainDetailResolution, 32, 2048);
+            if (!settings.TerrainChunkStreamingEnabled || terrainData == null)
+            {
+                return requested;
+            }
+
+            var xScale = terrainData.size.x / Mathf.Max(1f, settings.WorldWidth);
+            var zScale = terrainData.size.z / Mathf.Max(1f, settings.WorldLength);
+            var chunkScale = Mathf.Max(xScale, zScale);
+            return Mathf.Clamp(Mathf.RoundToInt(requested * chunkScale), 32, 512);
         }
 
         private static List<RuntimeDetailDefinition> BuildDetailDefinitions(ProceduralLocationSettings settings)
@@ -88,21 +132,23 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
         }
 
         private static void FillDetailLayer(
-            GenerationContext context,
+            ProceduralLocationSettings settings,
+            int seed,
+            Terrain terrain,
             TerrainData terrainData,
             RuntimeDetailDefinition definition,
             int layer,
-            int resolution)
+            int resolution,
+            Action<string, int, int> recordDetailLayer)
         {
             var values = new int[resolution, resolution];
             var occupiedCells = 0;
             var totalDensity = 0;
-            var settings = context.Settings;
             var waterLevel01 = settings.WaterEnabled && settings.TerrainHeight > 0f
                 ? Mathf.Clamp01(settings.WaterLevel / settings.TerrainHeight)
                 : -1f;
-            var seedA = (context.Seed & 0xFFFF) * 0.00071f + layer * 17.31f;
-            var seedB = ((context.Seed >> 8) & 0xFFFF) * 0.00067f + layer * 29.17f;
+            var seedA = (seed & 0xFFFF) * 0.00071f + layer * 17.31f;
+            var seedB = ((seed >> 8) & 0xFFFF) * 0.00067f + layer * 29.17f;
 
             for (var y = 0; y < resolution; y++)
             {
@@ -110,6 +156,10 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                 {
                     var nx = (x + 0.5f) / resolution;
                     var nz = (y + 0.5f) / resolution;
+                    var worldX = terrain.transform.position.x + nx * terrainData.size.x;
+                    var worldZ = terrain.transform.position.z + nz * terrainData.size.z;
+                    var worldNx = Mathf.InverseLerp(-settings.WorldWidth * 0.5f, settings.WorldWidth * 0.5f, worldX);
+                    var worldNz = Mathf.InverseLerp(-settings.WorldLength * 0.5f, settings.WorldLength * 0.5f, worldZ);
                     var normalizedHeight = terrainData.GetInterpolatedHeight(nx, nz) / terrainData.size.y;
                     var aboveWater = normalizedHeight - waterLevel01;
                     if (aboveWater < 0.035f)
@@ -118,14 +168,14 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                     }
 
                     var slope = Vector3.Angle(terrainData.GetInterpolatedNormal(nx, nz), Vector3.up);
-                    var mask = BuildPlacementMask(definition.Role, slope, normalizedHeight, aboveWater, nx, nz, seedA, seedB);
+                    var mask = BuildPlacementMask(definition.Role, slope, normalizedHeight, aboveWater, worldNx, worldNz, seedA, seedB);
                     if (mask <= 0.01f)
                     {
                         continue;
                     }
 
-                    var detailNoise = Mathf.PerlinNoise(nx * 92f + seedB, nz * 92f + seedA);
-                    var stochastic = Hash01(context.Seed, x, y, layer);
+                    var detailNoise = Mathf.PerlinNoise(worldNx * 92f + seedB, worldNz * 92f + seedA);
+                    var stochastic = Hash01(seed, x, y, layer);
                     var density = definition.BaseDensity * settings.TerrainDetailDensityMultiplier * mask * Mathf.Lerp(0.45f, 1.2f, detailNoise);
                     var whole = Mathf.FloorToInt(density);
                     var fractional = density - whole;
@@ -147,7 +197,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
             }
 
             terrainData.SetDetailLayer(0, 0, layer, values);
-            context.RecordTerrainDetailLayer(definition.Name, occupiedCells, totalDensity);
+            recordDetailLayer?.Invoke(definition.Name, occupiedCells, totalDensity);
         }
 
         private static float BuildPlacementMask(

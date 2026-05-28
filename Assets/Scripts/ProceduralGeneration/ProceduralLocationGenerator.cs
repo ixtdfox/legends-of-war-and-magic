@@ -1,3 +1,5 @@
+using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Text;
 using LegendsOfWarAndMagic.ProceduralGeneration.Config;
@@ -34,6 +36,8 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration
 
         public int LastUsedSeed => lastUsedSeed;
         public Terrain GeneratedTerrain { get; private set; }
+        public IProceduralTerrainSampler GeneratedTerrainSampler { get; private set; }
+        public GeneratedTerrainChunkStreamer TerrainChunkStreamer { get; private set; }
         public Transform GeneratedContentRoot => generatedContentRoot;
         public string LastGenerationSummary { get; private set; }
         public bool GenerateOnStart
@@ -83,6 +87,22 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration
             GenerateInternal(runtimeSettings, seed);
         }
 
+        public IEnumerator GenerateFromSettingsRoutine(
+            ProceduralLocationSettings runtimeSettings,
+            int seed,
+            Action<string, float> progress)
+        {
+            if (runtimeSettings == null)
+            {
+                Debug.LogError("Procedural generation aborted: runtime settings are null.", this);
+                progress?.Invoke("Ошибка настроек генерации", 1f);
+                yield break;
+            }
+
+            settings = runtimeSettings;
+            yield return GenerateInternalRoutine(runtimeSettings, seed, progress);
+        }
+
         [ContextMenu("Generate/Regenerate (Same Seed)")]
         public void RegenerateWithSameSeed()
         {
@@ -125,13 +145,11 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration
         {
             EnsureGeneratedRoot();
 
-            Random.InitState(seed);
+            UnityEngine.Random.InitState(seed);
 
             var context = new GenerationContext(activeSettings, seed, generatedContentRoot);
             BuildPipeline().Run(context);
-            lastUsedSeed = seed;
-            GeneratedTerrain = context.GeneratedTerrain;
-            LastGenerationSummary = BuildGenerationSummary(context);
+            FinalizeGeneration(context);
 
             if (verboseDebugLogging)
             {
@@ -139,9 +157,79 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration
             }
         }
 
+        private IEnumerator GenerateInternalRoutine(
+            ProceduralLocationSettings activeSettings,
+            int seed,
+            Action<string, float> progress)
+        {
+            EnsureGeneratedRoot();
+
+            UnityEngine.Random.InitState(seed);
+
+            var context = new GenerationContext(activeSettings, seed, generatedContentRoot);
+
+            progress?.Invoke("Очищаем предыдущую локацию...", 0.02f);
+            new ClearGeneratedContentStep().Execute(context);
+            yield return null;
+
+            progress?.Invoke("Создаём карту высот и первый чанк...", 0.12f);
+            new TerrainGenerationStep().Execute(context);
+            yield return null;
+
+            progress?.Invoke("Готовим детали поверхности...", 0.24f);
+            new TerrainDetailGenerationStep().Execute(context);
+            yield return null;
+
+            progress?.Invoke("Готовим траву...", 0.30f);
+            new GpuGrassGenerationStep().Execute(context);
+            yield return null;
+
+            progress?.Invoke("Добавляем воду...", 0.34f);
+            new WaterGenerationStep().Execute(context);
+            yield return null;
+
+            var propStep = new PropPlacementStep();
+            var propRoutine = propStep.ExecuteRoutine(
+                context,
+                (message, propProgress) =>
+                {
+                    progress?.Invoke(message, Mathf.Lerp(0.36f, 0.92f, Mathf.Clamp01(propProgress)));
+                });
+            while (propRoutine.MoveNext())
+            {
+                yield return null;
+            }
+
+            progress?.Invoke("Ставим границы локации...", 0.96f);
+            new CreateBoundaryMarkersStep().Execute(context);
+            yield return null;
+
+            FinalizeGeneration(context);
+            progress?.Invoke("Локация сгенерирована", 1f);
+
+            if (verboseDebugLogging)
+            {
+                Debug.Log(LastGenerationSummary, this);
+            }
+        }
+
+        private void FinalizeGeneration(GenerationContext context)
+        {
+            lastUsedSeed = context.Seed;
+            GeneratedTerrain = context.GeneratedTerrain;
+            GeneratedTerrainSampler = context.TerrainSampler;
+            TerrainChunkStreamer = context.TerrainChunkStreamer as GeneratedTerrainChunkStreamer;
+            LastGenerationSummary = BuildGenerationSummary(context);
+        }
+
         private string BuildGenerationSummary(GenerationContext context)
         {
             var settingsSummary = $"Procedural location generated. Preset={context.Settings.name}, Seed={context.Seed}, TerrainSize={context.Settings.WorldWidth}x{context.Settings.WorldLength}m Height={context.Settings.TerrainHeight}m, LandShape={context.Settings.LandShape}, WaterLevel={context.Settings.WaterLevel:0.##}m";
+            if (context.TerrainChunkStreamer is GeneratedTerrainChunkStreamer streamer)
+            {
+                settingsSummary += $", ChunkedTerrain={context.Settings.TerrainChunkSize:0.#}m x {streamer.LoadedTerrains.Count} loaded";
+            }
+
             if (context.SpawnedByCategory.Count == 0)
             {
                 return $"{settingsSummary}, SpawnedCategories=None";

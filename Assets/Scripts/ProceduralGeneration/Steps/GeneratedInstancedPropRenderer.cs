@@ -39,6 +39,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
         private readonly Dictionary<Material, Material> instancedMaterialCache = new();
         private readonly Dictionary<DrawKey, DrawGroup> drawGroupsByKey = new();
         private readonly List<DrawGroup> drawGroups = new();
+        private readonly Plane[] frustumPlanes = new Plane[6];
 
         private int instanceCount;
 
@@ -278,7 +279,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
 
             var settings = ResolveForestLodSettings();
             var cameraPosition = camera.transform.position;
-            var frustumPlanes = GeometryUtility.CalculateFrustumPlanes(camera);
+            GeometryUtility.CalculateFrustumPlanes(camera, frustumPlanes);
             for (var i = 0; i < drawGroups.Count; i++)
             {
                 drawGroups[i].Draw(
@@ -833,6 +834,8 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
 
         private sealed class DrawGroup
         {
+            private const float SpatialBucketSize = 64f;
+
             private readonly Mesh mesh;
             private readonly Material material;
             private readonly string sourceMaterialName;
@@ -851,6 +854,8 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
             private readonly List<Vector3> centers = new();
             private readonly List<float> maxDrawDistances = new();
             private readonly List<int> maxLodIndices = new();
+            private readonly Dictionary<Vector2Int, DrawBucket> bucketsByCoord = new();
+            private readonly List<DrawBucket> buckets = new();
             private readonly HashSet<string> sourcePrefabs = new(StringComparer.Ordinal);
 
             private Matrix4x4[] visibleMatrices = Array.Empty<Matrix4x4>();
@@ -885,10 +890,12 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                 int maxLodIndex,
                 string sourcePrefabName)
             {
+                var index = matrices.Count;
                 matrices.Add(matrix);
                 centers.Add(center);
                 maxDrawDistances.Add(maxDrawDistance);
                 maxLodIndices.Add(Mathf.Max(0, maxLodIndex));
+                AddToSpatialBucket(index, center, matrix, maxDrawDistance);
                 if (!string.IsNullOrWhiteSpace(sourcePrefabName))
                 {
                     sourcePrefabs.Add(sourcePrefabName);
@@ -958,34 +965,44 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                 var sourceShadowBounds = default(Bounds);
                 var noShadowBounds = default(Bounds);
                 var splitShadowsByDistance = UsesShadowDistanceSplit(settings);
-                for (var i = 0; i < matrices.Count; i++)
+                for (var bucketIndex = 0; bucketIndex < buckets.Count; bucketIndex++)
                 {
-                    var distance = Vector3.Distance(centers[i], cameraPosition);
-                    var activeLod = ResolveActiveLod(i, cameraPosition, true, settings, distance);
-                    var matrix = matrices[i];
-
-                    if (activeLod == lodIndex)
+                    var bucket = buckets[bucketIndex];
+                    if (!CanBucketContainVisibleInstances(bucket, cameraPosition, frustumPlanes, settings))
                     {
-                        var instanceBounds = TransformBounds(mesh.bounds, matrix);
-                        if (!IsInsideFrustum(instanceBounds, frustumPlanes))
-                        {
-                            continue;
-                        }
+                        continue;
+                    }
 
-                        visibleMatrices[visibleCount++] = matrix;
-                        Encapsulate(instanceBounds, ref visibleBounds, ref hasBounds);
+                    for (var indexIndex = 0; indexIndex < bucket.Indices.Count; indexIndex++)
+                    {
+                        var i = bucket.Indices[indexIndex];
+                        var distance = Vector3.Distance(centers[i], cameraPosition);
+                        var activeLod = ResolveActiveLod(i, cameraPosition, true, settings, distance);
+                        var matrix = matrices[i];
 
-                        if (splitShadowsByDistance)
+                        if (activeLod == lodIndex)
                         {
-                            if (ShouldUseSourceShadow(activeLod, distance, settings))
+                            var instanceBounds = TransformBounds(mesh.bounds, matrix);
+                            if (!IsInsideFrustum(instanceBounds, frustumPlanes))
                             {
-                                sourceShadowMatrices[sourceShadowCount++] = matrix;
-                                Encapsulate(instanceBounds, ref sourceShadowBounds, ref hasSourceShadowBounds);
+                                continue;
                             }
-                            else
+
+                            visibleMatrices[visibleCount++] = matrix;
+                            Encapsulate(instanceBounds, ref visibleBounds, ref hasBounds);
+
+                            if (splitShadowsByDistance)
                             {
-                                noShadowMatrices[noShadowCount++] = matrix;
-                                Encapsulate(instanceBounds, ref noShadowBounds, ref hasNoShadowBounds);
+                                if (ShouldUseSourceShadow(activeLod, distance, settings))
+                                {
+                                    sourceShadowMatrices[sourceShadowCount++] = matrix;
+                                    Encapsulate(instanceBounds, ref sourceShadowBounds, ref hasSourceShadowBounds);
+                                }
+                                else
+                                {
+                                    noShadowMatrices[noShadowCount++] = matrix;
+                                    Encapsulate(instanceBounds, ref noShadowBounds, ref hasNoShadowBounds);
+                                }
                             }
                         }
                     }
@@ -1079,22 +1096,102 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                 }
 
                 var visibleCount = 0;
-                for (var i = 0; i < matrices.Count; i++)
+                for (var bucketIndex = 0; bucketIndex < buckets.Count; bucketIndex++)
                 {
-                    if (ResolveActiveLod(i, cameraPosition, true, settings) != lodIndex)
+                    var bucket = buckets[bucketIndex];
+                    if (!CanBucketContainVisibleInstances(bucket, cameraPosition, frustumPlanes, settings))
                     {
                         continue;
                     }
 
-                    if (!IsInsideFrustum(TransformBounds(mesh.bounds, matrices[i]), frustumPlanes))
+                    for (var indexIndex = 0; indexIndex < bucket.Indices.Count; indexIndex++)
                     {
-                        continue;
-                    }
+                        var i = bucket.Indices[indexIndex];
+                        if (ResolveActiveLod(i, cameraPosition, true, settings) != lodIndex)
+                        {
+                            continue;
+                        }
 
-                    visibleCount++;
+                        if (!IsInsideFrustum(TransformBounds(mesh.bounds, matrices[i]), frustumPlanes))
+                        {
+                            continue;
+                        }
+
+                        visibleCount++;
+                    }
                 }
 
                 return visibleCount;
+            }
+
+            private void AddToSpatialBucket(int index, Vector3 center, Matrix4x4 matrix, float maxDrawDistance)
+            {
+                var coord = ResolveBucketCoord(center);
+                if (!bucketsByCoord.TryGetValue(coord, out var bucket))
+                {
+                    bucket = new DrawBucket();
+                    bucketsByCoord.Add(coord, bucket);
+                    buckets.Add(bucket);
+                }
+
+                bucket.Add(index, TransformBounds(mesh.bounds, matrix), maxDrawDistance);
+            }
+
+            private bool CanBucketContainVisibleInstances(
+                DrawBucket bucket,
+                Vector3 cameraPosition,
+                Plane[] frustumPlanes,
+                ForestLodSettings settings)
+            {
+                if (bucket == null || bucket.Indices.Count == 0)
+                {
+                    return false;
+                }
+
+                if (!IsInsideFrustum(bucket.Bounds, frustumPlanes))
+                {
+                    return false;
+                }
+
+                var cullDistance = ResolveBucketCullDistance(bucket, settings);
+                return cullDistance <= 0f || SqrDistanceToBounds(bucket.Bounds, cameraPosition) <= cullDistance * cullDistance;
+            }
+
+            private float ResolveBucketCullDistance(DrawBucket bucket, ForestLodSettings settings)
+            {
+                if (!usesDistanceLod)
+                {
+                    return bucket.HasInfiniteDrawDistance ? 0f : bucket.MaxDrawDistance;
+                }
+
+                settings ??= ForestLodSettings.CreatePreset(ForestQualityLevel.High);
+                var globalCullDistance = settings.CullDistance > 0f ? settings.CullDistance : settings.Lod2Distance;
+                if (bucket.HasInfiniteDrawDistance || bucket.MaxDrawDistance <= 0f)
+                {
+                    return globalCullDistance;
+                }
+
+                return globalCullDistance > 0f
+                    ? Mathf.Min(globalCullDistance, bucket.MaxDrawDistance)
+                    : bucket.MaxDrawDistance;
+            }
+
+            private static Vector2Int ResolveBucketCoord(Vector3 center)
+            {
+                return new Vector2Int(
+                    Mathf.FloorToInt(center.x / SpatialBucketSize),
+                    Mathf.FloorToInt(center.z / SpatialBucketSize));
+            }
+
+            private static float SqrDistanceToBounds(Bounds bounds, Vector3 point)
+            {
+                var closestX = Mathf.Clamp(point.x, bounds.min.x, bounds.max.x);
+                var closestY = Mathf.Clamp(point.y, bounds.min.y, bounds.max.y);
+                var closestZ = Mathf.Clamp(point.z, bounds.min.z, bounds.max.z);
+                var dx = point.x - closestX;
+                var dy = point.y - closestY;
+                var dz = point.z - closestZ;
+                return dx * dx + dy * dy + dz * dz;
             }
 
             private static bool IsInsideFrustum(Bounds bounds, Plane[] frustumPlanes)
@@ -1239,6 +1336,42 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                 }
 
                 target.Encapsulate(source);
+            }
+
+            private sealed class DrawBucket
+            {
+                public readonly List<int> Indices = new();
+
+                private bool hasBounds;
+
+                public Bounds Bounds { get; private set; }
+                public float MaxDrawDistance { get; private set; }
+                public bool HasInfiniteDrawDistance { get; private set; }
+
+                public void Add(int index, Bounds bounds, float maxDrawDistance)
+                {
+                    Indices.Add(index);
+                    if (!hasBounds)
+                    {
+                        Bounds = bounds;
+                        hasBounds = true;
+                    }
+                    else
+                    {
+                        var merged = Bounds;
+                        merged.Encapsulate(bounds);
+                        Bounds = merged;
+                    }
+
+                    if (maxDrawDistance <= 0f)
+                    {
+                        HasInfiniteDrawDistance = true;
+                    }
+                    else
+                    {
+                        MaxDrawDistance = Mathf.Max(MaxDrawDistance, maxDrawDistance);
+                    }
+                }
             }
         }
     }

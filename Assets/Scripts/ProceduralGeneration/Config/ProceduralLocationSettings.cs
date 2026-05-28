@@ -33,15 +33,17 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Config
         order = 0)]
     public sealed class ProceduralLocationSettings : ScriptableObject
     {
+        public const float DefaultLocationSizeMeters = 4000f;
+
         [Serializable]
         public sealed class GlobalGenerationSettings
         {
             [Header("World Bounds (meters)")]
             [Min(1f)]
-            [SerializeField] private float worldWidth = 2000f;
+            [SerializeField] private float worldWidth = DefaultLocationSizeMeters;
 
             [Min(1f)]
-            [SerializeField] private float worldLength = 2000f;
+            [SerializeField] private float worldLength = DefaultLocationSizeMeters;
 
             public float WorldWidth => worldWidth;
             public float WorldLength => worldLength;
@@ -73,7 +75,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Config
         public sealed class TerrainGenerationSettings
         {
             [Min(33)]
-            [SerializeField] private int heightmapResolution = 513;
+            [SerializeField] private int heightmapResolution = 1025;
 
             [Min(1f)]
             [SerializeField] private float terrainHeight = 220f;
@@ -175,6 +177,85 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Config
         }
 
         [Serializable]
+        public sealed class TerrainChunkGenerationSettings
+        {
+            [SerializeField] private bool enabled = true;
+
+            [Tooltip("World-space chunk size in meters. 500m creates an 8x8 grid for a 4x4 km location.")]
+            [Min(32f)]
+            [SerializeField] private float chunkSize = 500f;
+
+            [Tooltip("Heightmap resolution per chunk. Use power-of-two plus one values for Unity Terrain.")]
+            [Min(33)]
+            [SerializeField] private int heightmapResolution = 129;
+
+            [Tooltip("How many chunks around the player remain loaded.")]
+            [Min(0)]
+            [SerializeField] private int loadRadiusChunks = 3;
+
+            [Tooltip("Extra ring kept loaded before unloading to prevent churn on chunk boundaries.")]
+            [Min(0)]
+            [SerializeField] private int unloadBufferChunks = 1;
+
+            [Tooltip("Chunks loaded synchronously around the origin before the player exists.")]
+            [Min(0)]
+            [SerializeField] private int initialLoadRadiusChunks = 0;
+
+            [Tooltip("Chunks around the spawn point loaded across frames before gameplay starts.")]
+            [Min(0)]
+            [SerializeField] private int bootstrapPreloadRadiusChunks = 3;
+
+            [Tooltip("Maximum terrain chunks built per gameplay frame.")]
+            [Min(1)]
+            [SerializeField] private int maxChunkBuildsPerFrame = 1;
+
+            [Tooltip("Maximum old terrain chunks destroyed per gameplay frame.")]
+            [Min(1)]
+            [SerializeField] private int maxChunkUnloadsPerFrame = 4;
+
+            [Tooltip("Terrain heightmap pixel errors for near, mid, and far streamed chunks.")]
+            [SerializeField] private Vector3 lodPixelErrors = new(4f, 14f, 34f);
+
+            public bool Enabled => enabled;
+            public float ChunkSize => chunkSize;
+            public int HeightmapResolution => heightmapResolution;
+            public int LoadRadiusChunks => loadRadiusChunks;
+            public int UnloadBufferChunks => unloadBufferChunks;
+            public int InitialLoadRadiusChunks => initialLoadRadiusChunks;
+            public int BootstrapPreloadRadiusChunks => bootstrapPreloadRadiusChunks;
+            public int MaxChunkBuildsPerFrame => maxChunkBuildsPerFrame;
+            public int MaxChunkUnloadsPerFrame => maxChunkUnloadsPerFrame;
+            public Vector3 LodPixelErrors => lodPixelErrors;
+
+            public void Configure(
+                bool isEnabled,
+                float size,
+                int resolution,
+                int loadRadius,
+                int unloadBuffer,
+                int initialLoadRadius,
+                int bootstrapPreloadRadius,
+                int chunkBuildsPerFrame,
+                int chunkUnloadsPerFrame,
+                Vector3 pixelErrors)
+            {
+                enabled = isEnabled;
+                chunkSize = Mathf.Max(32f, size);
+                heightmapResolution = Mathf.Max(33, resolution);
+                loadRadiusChunks = Mathf.Max(0, loadRadius);
+                unloadBufferChunks = Mathf.Max(0, unloadBuffer);
+                initialLoadRadiusChunks = Mathf.Max(0, initialLoadRadius);
+                bootstrapPreloadRadiusChunks = Mathf.Max(0, bootstrapPreloadRadius);
+                maxChunkBuildsPerFrame = Mathf.Max(1, chunkBuildsPerFrame);
+                maxChunkUnloadsPerFrame = Mathf.Max(1, chunkUnloadsPerFrame);
+                lodPixelErrors = new Vector3(
+                    Mathf.Max(1f, pixelErrors.x),
+                    Mathf.Max(1f, pixelErrors.y),
+                    Mathf.Max(1f, pixelErrors.z));
+            }
+        }
+
+        [Serializable]
         public sealed class PropPlacementGenerationSettings
         {
             [SerializeField] private bool enablePropPlacement = true;
@@ -230,6 +311,9 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Config
         [Header("Terrain")]
         [SerializeField] private TerrainGenerationSettings terrain = new();
 
+        [Header("Terrain Chunks")]
+        [SerializeField] private TerrainChunkGenerationSettings terrainChunks = new();
+
         [Header("Props")]
         [SerializeField] private PropPlacementGenerationSettings props = new();
 
@@ -276,6 +360,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Config
         public GlobalGenerationSettings Global => global;
         public SeedGenerationSettings Seed => seed;
         public TerrainGenerationSettings Terrain => terrain;
+        public TerrainChunkGenerationSettings TerrainChunks => terrainChunks;
         public PropPlacementGenerationSettings Props => props;
         public WaterGenerationSettings Water => water;
         public TerrainDetailGenerationSettings TerrainDetails => terrainDetails;
@@ -302,6 +387,16 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Config
         public bool UseEdgeFalloff => terrain.UseEdgeFalloff;
         public float EdgeFalloffStart => terrain.EdgeFalloffStart;
         public float EdgeFalloffStrength => terrain.EdgeFalloffStrength;
+        public bool TerrainChunkStreamingEnabled => terrainChunks.Enabled;
+        public float TerrainChunkSize => terrainChunks.ChunkSize;
+        public int TerrainChunkHeightmapResolution => terrainChunks.HeightmapResolution;
+        public int TerrainChunkLoadRadius => terrainChunks.LoadRadiusChunks;
+        public int TerrainChunkUnloadBuffer => terrainChunks.UnloadBufferChunks;
+        public int TerrainChunkInitialLoadRadius => terrainChunks.InitialLoadRadiusChunks;
+        public int TerrainChunkBootstrapPreloadRadius => terrainChunks.BootstrapPreloadRadiusChunks;
+        public int TerrainChunkMaxBuildsPerFrame => terrainChunks.MaxChunkBuildsPerFrame;
+        public int TerrainChunkMaxUnloadsPerFrame => terrainChunks.MaxChunkUnloadsPerFrame;
+        public Vector3 TerrainChunkLodPixelErrors => terrainChunks.LodPixelErrors;
         public bool EnablePropPlacement => props.EnablePropPlacement;
         public IReadOnlyList<PropCategoryPlacementSettings> PropCategories => props.PropCategories;
         public bool WaterEnabled => water.Enabled;
@@ -365,6 +460,31 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Config
                 edgeFalloff,
                 falloffStart,
                 falloffStrength);
+        }
+
+        public void ConfigureTerrainChunks(
+            bool enabled,
+            float chunkSize,
+            int resolution,
+            int loadRadius,
+            int unloadBuffer,
+            int initialLoadRadius,
+            int bootstrapPreloadRadius,
+            int chunkBuildsPerFrame,
+            int chunkUnloadsPerFrame,
+            Vector3 lodPixelErrors)
+        {
+            terrainChunks.Configure(
+                enabled,
+                chunkSize,
+                resolution,
+                loadRadius,
+                unloadBuffer,
+                initialLoadRadius,
+                bootstrapPreloadRadius,
+                chunkBuildsPerFrame,
+                chunkUnloadsPerFrame,
+                lodPixelErrors);
         }
 
         public void ConfigureProps(bool enabled, IEnumerable<PropCategoryPlacementSettings> categories)

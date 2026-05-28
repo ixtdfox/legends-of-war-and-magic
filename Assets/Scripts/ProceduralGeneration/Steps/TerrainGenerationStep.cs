@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using LegendsOfWarAndMagic.ProceduralGeneration.Config;
 using LegendsOfWarAndMagic.ProceduralGeneration.Core;
 using LegendsOfWarAndMagic.ProceduralGeneration.Pipeline;
@@ -18,13 +19,43 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
         public void Execute(GenerationContext context)
         {
             var settings = context.Settings;
+            var sampler = new ProceduralTerrainSampler(settings, context.Seed);
+            context.TerrainSampler = sampler;
+
+            if (settings.TerrainChunkStreamingEnabled)
+            {
+                var chunkedTerrainRoot = new GameObject("GeneratedTerrain").transform;
+                chunkedTerrainRoot.SetParent(context.GeneratedRoot, false);
+                var streamer = chunkedTerrainRoot.gameObject.AddComponent<GeneratedTerrainChunkStreamer>();
+                streamer.Configure(settings, context.Seed, sampler);
+                context.TerrainChunkStreamer = streamer;
+
+                var loadedTerrains = streamer.LoadedTerrains;
+                for (var i = 0; i < loadedTerrains.Count; i++)
+                {
+                    context.AddGeneratedTerrain(loadedTerrains[i]);
+                }
+
+                context.GeneratedTerrain = ResolveNearestTerrain(loadedTerrains, Vector3.zero);
+                context.RecordSpawn("TerrainChunks", loadedTerrains.Count);
+                return;
+            }
+
             var terrainData = new TerrainData
             {
                 heightmapResolution = SanitizeHeightmapResolution(settings.HeightmapResolution),
                 size = new Vector3(settings.WorldWidth, settings.TerrainHeight, settings.WorldLength)
             };
 
-            terrainData.SetHeights(0, 0, BuildHeightMap(terrainData.heightmapResolution, settings, context.Seed));
+            terrainData.SetHeights(
+                0,
+                0,
+                sampler.BuildHeightMap(
+                    terrainData.heightmapResolution,
+                    context.WorldBounds.min.x,
+                    context.WorldBounds.min.z,
+                    settings.WorldWidth,
+                    settings.WorldLength));
 
             var terrainRoot = new GameObject("GeneratedTerrain").transform;
             terrainRoot.SetParent(context.GeneratedRoot, false);
@@ -34,6 +65,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
             terrainObject.transform.SetParent(terrainRoot, false);
             terrainObject.transform.position = new Vector3(-settings.WorldWidth * 0.5f, 0f, -settings.WorldLength * 0.5f);
             context.GeneratedTerrain = terrainObject.GetComponent<Terrain>();
+            context.AddGeneratedTerrain(context.GeneratedTerrain);
             ConfigureTerrainRenderCost(context.GeneratedTerrain);
             GeneratedTerrainVisuals.Apply(context.GeneratedTerrain, settings, context.Seed);
             context.RecordSpawn("Terrain", 1);
@@ -60,7 +92,41 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
 
         public static float[,] BuildPreviewHeightMap(int requestedResolution, ProceduralLocationSettings settings, int seed)
         {
-            return BuildHeightMap(SanitizeHeightmapResolution(requestedResolution), settings, seed);
+            var sampler = new ProceduralTerrainSampler(settings, seed);
+            var bounds = settings.GetWorldBounds();
+            return sampler.BuildHeightMap(
+                SanitizeHeightmapResolution(requestedResolution),
+                bounds.min.x,
+                bounds.min.z,
+                settings.WorldWidth,
+                settings.WorldLength);
+        }
+
+        private static Terrain ResolveNearestTerrain(IReadOnlyList<Terrain> terrains, Vector3 worldPosition)
+        {
+            Terrain nearest = null;
+            var nearestDistance = float.MaxValue;
+            for (var i = 0; i < terrains.Count; i++)
+            {
+                var terrain = terrains[i];
+                if (terrain == null || terrain.terrainData == null)
+                {
+                    continue;
+                }
+
+                var size = terrain.terrainData.size;
+                var center = terrain.transform.position + new Vector3(size.x * 0.5f, 0f, size.z * 0.5f);
+                var distance = (new Vector2(center.x, center.z) - new Vector2(worldPosition.x, worldPosition.z)).sqrMagnitude;
+                if (distance >= nearestDistance)
+                {
+                    continue;
+                }
+
+                nearestDistance = distance;
+                nearest = terrain;
+            }
+
+            return nearest;
         }
 
         private static float[,] BuildHeightMap(int resolution, ProceduralLocationSettings settings, int seed)
