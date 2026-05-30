@@ -1,4 +1,8 @@
 using LegendsOfWarAndMagic.ProceduralGeneration.Config;
+using LegendsOfWarAndMagic.ProceduralGeneration.WorldGeneration.Masks;
+using LegendsOfWarAndMagic.Game.World.Domain.Roads;
+using LegendsOfWarAndMagic.ProceduralGeneration.WorldGeneration.Model;
+using LegendsOfWarAndMagic.ProceduralGeneration.WorldGeneration.Terrain;
 using UnityEngine;
 
 namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
@@ -11,8 +15,16 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
         private const int GrassVariationLayer = 2;
         private const int RockLayer = 3;
         private const int HighlandLayer = 4;
+        private const int TrailRoadLayer = 5;
+        private const int DirtRoadLayer = 6;
+        private const int StoneRoadLayer = 7;
 
-        public static void Apply(Terrain terrain, ProceduralLocationSettings settings, int seed)
+        public static void Apply(
+            Terrain terrain,
+            ProceduralLocationSettings settings,
+            int seed,
+            WorldGenerationMaskSet worldMasks = null,
+            GeneratedRoadNetwork roadNetwork = null)
         {
             if (terrain == null || terrain.terrainData == null || settings == null)
             {
@@ -23,14 +35,17 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
             terrainData.terrainLayers = new[]
             {
                 ResolveLayer(settings, TerrainSurfaceRole.Shore, "Generated Shore", new Color(0.32f, 0.29f, 0.22f, 1f), 7f),
-                CreateLayer("Generated Grass", new Color(0.16f, 0.24f, 0.10f, 1f), 3.5f),
-                CreateLayer("Generated Grass Variation", new Color(0.34f, 0.32f, 0.17f, 1f), 4.5f),
+                ResolveLayer(settings, TerrainSurfaceRole.Ground, "Generated Grass", new Color(0.16f, 0.24f, 0.10f, 1f), 7f),
+                ResolveResourceLayer("TerrainLayers/Terrain/Fristy_Terrain_Grass_01", "Fristy Grass Variation", Color.white, 5.5f),
                 ResolveLayer(settings, TerrainSurfaceRole.Rock, "Generated Rock", new Color(0.43f, 0.44f, 0.39f, 1f), 7f),
-                CreateLayer("Generated Highland", new Color(0.39f, 0.34f, 0.21f, 1f), 5.5f)
+                ResolveLayer(settings, TerrainSurfaceRole.Highland, "Generated Highland", new Color(0.39f, 0.34f, 0.21f, 1f), 12f),
+                ResolveResourceLayer("TerrainLayers/Terrain/Fristy_Terrain_Mud", "Fristy Road Trail", Color.white, 6.5f),
+                ResolveResourceLayer("TerrainLayers/Terrain/Fristy_Terrain_Soil", "Fristy Road Dirt", Color.white, 7f),
+                ResolveResourceLayer("TerrainLayers/Terrain/Fristy_Terrain_Rock", "Fristy Road Stone", Color.white, 5.5f)
             };
 
             terrainData.alphamapResolution = Mathf.Clamp(terrainData.heightmapResolution / 2, 64, 256);
-            PaintTerrain(terrain, settings, seed);
+            PaintTerrain(terrain, settings, seed, worldMasks, roadNetwork);
         }
 
         private static TerrainLayer ResolveLayer(
@@ -46,15 +61,14 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                 return CreateLayer(fallbackName, fallbackColor, fallbackTileSize);
             }
 
-            var surfaceColor = Color.Lerp(fallbackColor, surface.FallbackColor, 0.35f);
             if (surface.TerrainLayer != null)
             {
                 var tileSize = surface.TileSize > 0f ? surface.TileSize : fallbackTileSize;
-                return CreateLayerCopy(surface.TerrainLayer, surface.SurfaceName, surfaceColor, tileSize);
+                return CreateLayerCopy(surface.TerrainLayer, surface.SurfaceName, Color.white, tileSize);
             }
 
             var fallbackSurfaceTileSize = surface.TileSize > 0f ? surface.TileSize : fallbackTileSize;
-            return CreateLayer(surface.SurfaceName, surfaceColor, fallbackSurfaceTileSize);
+            return CreateLayer(surface.SurfaceName, surface.FallbackColor, fallbackSurfaceTileSize);
         }
 
         private static TerrainLayer ResolveResourceLayer(string resourcePath, string fallbackName, Color fallbackColor, float fallbackTileSize)
@@ -149,8 +163,8 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
             layer.maskMapRemapMin = Vector4.zero;
             layer.maskMapRemapMax = Vector4.one;
             layer.metallic = 0f;
-            layer.smoothness = 0.12f;
-            layer.specular = new Color(0.035f, 0.036f, 0.034f, 1f);
+            layer.smoothness = 0.06f;
+            layer.specular = new Color(0.01f, 0.01f, 0.008f, 1f);
         }
 
         private static float Hash01(int seed, int x, int y)
@@ -166,7 +180,12 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
             }
         }
 
-        private static void PaintTerrain(Terrain terrain, ProceduralLocationSettings settings, int seed)
+        private static void PaintTerrain(
+            Terrain terrain,
+            ProceduralLocationSettings settings,
+            int seed,
+            WorldGenerationMaskSet worldMasks,
+            GeneratedRoadNetwork roadNetwork)
         {
             var terrainData = terrain.terrainData;
             var terrainPosition = terrain.transform.position;
@@ -248,7 +267,31 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                         grassVariationWeight *= 0.1f;
                     }
 
-                    var total = shoreWeight + grassWeight + grassVariationWeight + rockWeight + highlandWeight;
+                    var worldPoint = new Vector2(worldX, worldZ);
+                    var roadPaint = TerrainRoadPainter.Evaluate(worldPoint, roadNetwork, settings.Roads, seed);
+                    var roadMask = roadPaint.HasRoad
+                        ? roadPaint.Weight
+                        : worldMasks != null
+                            ? worldMasks.Evaluate(worldPoint, GenerationZoneKind.Road)
+                            : 0f;
+
+                    if (worldMasks != null)
+                    {
+                        var noSpawn = worldMasks.IsNoSpawn(worldPoint) ? 1f : 0f;
+                        var reducedVegetation = worldMasks.Evaluate(worldPoint, GenerationZoneKind.ReducedVegetation);
+                        var suppression = Mathf.Clamp01(Mathf.Max(roadMask, noSpawn) + reducedVegetation * 0.45f);
+                        grassWeight *= 1f - suppression;
+                        grassVariationWeight *= 1f - suppression * 0.85f;
+                        highlandWeight += reducedVegetation * 0.18f;
+                    }
+
+                    var trailRoadWeight = 0f;
+                    var dirtRoadWeight = 0f;
+                    var stoneRoadWeight = 0f;
+                    ResolveRoadWeights(roadPaint, roadMask, out trailRoadWeight, out dirtRoadWeight, out stoneRoadWeight);
+
+                    var total = shoreWeight + grassWeight + grassVariationWeight + rockWeight + highlandWeight +
+                                trailRoadWeight + dirtRoadWeight + stoneRoadWeight;
                     if (total <= 0f)
                     {
                         alphas[y, x, GrassLayer] = 1f;
@@ -260,10 +303,53 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                     alphas[y, x, GrassVariationLayer] = grassVariationWeight / total;
                     alphas[y, x, RockLayer] = rockWeight / total;
                     alphas[y, x, HighlandLayer] = highlandWeight / total;
+                    alphas[y, x, TrailRoadLayer] = trailRoadWeight / total;
+                    alphas[y, x, DirtRoadLayer] = dirtRoadWeight / total;
+                    alphas[y, x, StoneRoadLayer] = stoneRoadWeight / total;
                 }
             }
 
             terrainData.SetAlphamaps(0, 0, alphas);
+        }
+
+        private static void ResolveRoadWeights(
+            RoadPaintSample roadPaint,
+            float fallbackMask,
+            out float trailRoadWeight,
+            out float dirtRoadWeight,
+            out float stoneRoadWeight)
+        {
+            trailRoadWeight = 0f;
+            dirtRoadWeight = 0f;
+            stoneRoadWeight = 0f;
+
+            if (!roadPaint.HasRoad)
+            {
+                dirtRoadWeight = Mathf.Pow(Mathf.Clamp01(fallbackMask), 0.55f) * 4.5f;
+                return;
+            }
+
+            var weight = Mathf.Pow(roadPaint.Weight, 0.55f) * 4.8f;
+            switch (roadPaint.Type)
+            {
+                case RoadType.Trail:
+                case RoadType.HiddenPath:
+                    trailRoadWeight = weight;
+                    dirtRoadWeight = weight * 0.18f;
+                    break;
+                case RoadType.MainRoad:
+                    dirtRoadWeight = weight * (0.85f - roadPaint.StoneBlend * 0.35f);
+                    stoneRoadWeight = weight * Mathf.Max(0.15f, roadPaint.StoneBlend);
+                    break;
+                case RoadType.StoneRoad:
+                    stoneRoadWeight = weight;
+                    dirtRoadWeight = weight * 0.12f;
+                    break;
+                default:
+                    dirtRoadWeight = weight;
+                    trailRoadWeight = weight * 0.12f;
+                    break;
+            }
         }
     }
 }

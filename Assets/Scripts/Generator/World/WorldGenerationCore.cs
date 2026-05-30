@@ -11,10 +11,20 @@ namespace LegendsOfWarAndMagic.Generator.World
 {
     public sealed class WorldGenerationConfig
     {
+        public const int MinPlayableLocationCount = 1;
+        public const int MaxPlayableLocationCount = 15;
+
+        private int playableLocationCount = MinPlayableLocationCount;
+
         public int Seed { get; set; }
         public int MinRegions { get; set; } = 8;
         public int MaxRegions { get; set; } = 20;
-        public int PlayableLocationCount { get; set; } = 15;
+        public int PlayableLocationCount
+        {
+            get => Clamp(playableLocationCount, MinPlayableLocationCount, MaxPlayableLocationCount);
+            set => playableLocationCount = Clamp(value, MinPlayableLocationCount, MaxPlayableLocationCount);
+        }
+
         public WorldShapeType? ForcedShape { get; set; }
         public int MapSampleWidth { get; set; } = 128;
         public int MapSampleHeight { get; set; } = 96;
@@ -28,6 +38,16 @@ namespace LegendsOfWarAndMagic.Generator.World
         public string BuildSnapshot()
         {
             return $"Seed={Seed};Regions={MinRegions}-{MaxRegions};Locations={PlayableLocationCount};Shape={ForcedShape};Samples={MapSampleWidth}x{MapSampleHeight};Version={GeneratorVersion}";
+        }
+
+        private static int Clamp(int value, int min, int max)
+        {
+            if (value < min)
+            {
+                return min;
+            }
+
+            return value > max ? max : value;
         }
     }
 

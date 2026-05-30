@@ -6,6 +6,8 @@ using LegendsOfWarAndMagic.ProceduralGeneration.Config;
 using LegendsOfWarAndMagic.ProceduralGeneration.Core;
 using LegendsOfWarAndMagic.ProceduralGeneration.Pipeline;
 using LegendsOfWarAndMagic.ProceduralGeneration.Steps;
+using LegendsOfWarAndMagic.ProceduralGeneration.WorldGeneration.Pipeline;
+using LegendsOfWarAndMagic.ProceduralGeneration.WorldGeneration.Steps;
 using UnityEngine;
 
 namespace LegendsOfWarAndMagic.ProceduralGeneration
@@ -40,6 +42,8 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration
         public GeneratedTerrainChunkStreamer TerrainChunkStreamer { get; private set; }
         public GeneratedPropChunkStreamer PropChunkStreamer { get; private set; }
         public Transform GeneratedContentRoot => generatedContentRoot;
+        public ProceduralLocationSettings CurrentSettings => settings;
+        public WorldGenerationLayers GeneratedWorldLayers { get; private set; }
         public string LastGenerationSummary { get; private set; }
         public bool GenerateOnStart
         {
@@ -140,6 +144,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration
             }
 
             ClearGeneratedContentStep.Clear(generatedContentRoot);
+            GeneratedWorldLayers = null;
         }
 
         private void GenerateInternal(ProceduralLocationSettings activeSettings, int seed)
@@ -175,6 +180,10 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration
 
             progress?.Invoke("Создаём карту высот и первый чанк...", 0.12f);
             new TerrainGenerationStep().Execute(context);
+            yield return null;
+
+            progress?.Invoke("Планируем поселения, дороги и места интереса...", 0.20f);
+            new WorldFeatureGenerationStep().Execute(context);
             yield return null;
 
             progress?.Invoke("Готовим детали поверхности...", 0.24f);
@@ -221,6 +230,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration
             GeneratedTerrainSampler = context.TerrainSampler;
             TerrainChunkStreamer = context.TerrainChunkStreamer as GeneratedTerrainChunkStreamer;
             PropChunkStreamer = context.PropChunkStreamer as GeneratedPropChunkStreamer;
+            GeneratedWorldLayers = context.WorldLayers;
             LastGenerationSummary = BuildGenerationSummary(context);
         }
 
@@ -335,6 +345,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration
                     new IGenerationStep[]
                     {
                         new TerrainGenerationStep(),
+                        new WorldFeatureGenerationStep(),
                         new TerrainDetailGenerationStep(),
                         new GpuGrassGenerationStep(),
                         new WaterGenerationStep(),

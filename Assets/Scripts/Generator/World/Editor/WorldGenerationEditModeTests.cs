@@ -1,11 +1,14 @@
 #if UNITY_EDITOR
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using LegendsOfWarAndMagic.Game.World.Domain;
 using LegendsOfWarAndMagic.Game.World.Infrastructure.Persistence;
+using LegendsOfWarAndMagic.Game.World.Infrastructure.Unity;
 using LegendsOfWarAndMagic.Generator.Common;
 using LegendsOfWarAndMagic.Generator.Common.Graph;
 using LegendsOfWarAndMagic.Generator.Naming;
+using LegendsOfWarAndMagic.Game.World.Ports;
 using NUnit.Framework;
 
 namespace LegendsOfWarAndMagic.Generator.World.Editor
@@ -54,6 +57,64 @@ namespace LegendsOfWarAndMagic.Generator.World.Editor
                 Assert.AreEqual(firstLocations[i].DominantBiome, secondLocations[i].DominantBiome);
                 Assert.AreEqual(firstLocations[i].WorldMapPosition.X, secondLocations[i].WorldMapPosition.X, 0.0001f);
                 Assert.AreEqual(firstLocations[i].WorldMapPosition.Y, secondLocations[i].WorldMapPosition.Y, 0.0001f);
+            }
+        }
+
+        [Test]
+        public void WorldGenerationConfig_DefaultsToSingleLocationAndClampsSelectionRange()
+        {
+            var config = new WorldGenerationConfig();
+
+            Assert.AreEqual(1, config.PlayableLocationCount);
+
+            config.PlayableLocationCount = 0;
+            Assert.AreEqual(1, config.PlayableLocationCount);
+
+            config.PlayableLocationCount = 99;
+            Assert.AreEqual(15, config.PlayableLocationCount);
+        }
+
+        [Test]
+        public void WorldGeneration_DefaultConfigCreatesSingleStartLocation()
+        {
+            var world = new TopDownWorldGenerator().Generate(new WorldGenerationConfig
+            {
+                Seed = 81077,
+                ForcedShape = WorldShapeType.HugeIsland
+            });
+
+            Assert.AreEqual(1, world.Locations.Count);
+            Assert.NotNull(world.StartLocation);
+            Assert.IsTrue(world.StartLocation.IsStartLocation);
+            Assert.AreEqual(1, world.Map.Points.Count);
+        }
+
+        [Test]
+        public void SingleLocationWorld_CanRenderLocationMapImage()
+        {
+            var world = new TopDownWorldGenerator().Generate(new WorldGenerationConfig
+            {
+                Seed = 81078,
+                ForcedShape = WorldShapeType.HugeIsland
+            });
+            var location = world.StartLocation;
+            var outputDirectory = Path.Combine(Path.GetTempPath(), "LegendsOfWarAndMagicTests", world.Id.Value);
+            var outputPath = Path.Combine(outputDirectory, "location_map.png");
+
+            try
+            {
+                var result = new TextureLocationMapRenderer().Render(world, location, outputPath, new LocationMapRenderSettings(256, 256));
+
+                Assert.AreEqual(outputPath, result.ImagePath);
+                Assert.IsTrue(File.Exists(outputPath));
+                Assert.Greater(new FileInfo(outputPath).Length, 0);
+            }
+            finally
+            {
+                if (Directory.Exists(outputDirectory))
+                {
+                    Directory.Delete(outputDirectory, true);
+                }
             }
         }
 

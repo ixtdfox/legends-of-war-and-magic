@@ -3,6 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using LegendsOfWarAndMagic.ProceduralGeneration.Config;
 using LegendsOfWarAndMagic.ProceduralGeneration.Core;
+using LegendsOfWarAndMagic.ProceduralGeneration.WorldGeneration.Pipeline;
 using UnityEngine;
 
 namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
@@ -32,6 +33,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
         private bool hasPropExclusion;
         private Vector3 propExclusionCenter;
         private float propExclusionRadius;
+        private WorldGenerationLayers worldLayers;
 
         public int LoadedChunkCount => loadedChunks.Count;
         public int PendingLoadCount => loadQueue.Count;
@@ -55,6 +57,11 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
             }
 
             LoadAroundImmediate(Vector3.zero, settings.TerrainChunkInitialLoadRadius);
+        }
+
+        public void ApplyWorldGenerationLayers(WorldGenerationLayers layers)
+        {
+            worldLayers = layers;
         }
 
         public void LoadAroundImmediate(Vector3 worldPosition, int radius)
@@ -160,7 +167,9 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                 TerrainSampler = sampler,
                 HasPropExclusion = hasPropExclusion,
                 PropExclusionCenter = propExclusionCenter,
-                PropExclusionRadius = propExclusionRadius
+                PropExclusionRadius = propExclusionRadius,
+                WorldLayers = worldLayers,
+                WorldMasks = worldLayers?.Masks
             };
 
             yield return PropPlacementStep.GenerateIntoRootRoutine(

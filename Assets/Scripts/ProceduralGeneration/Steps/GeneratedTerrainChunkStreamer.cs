@@ -3,6 +3,9 @@ using System.Collections;
 using System.Collections.Generic;
 using LegendsOfWarAndMagic.ProceduralGeneration.Config;
 using LegendsOfWarAndMagic.ProceduralGeneration.Core;
+using LegendsOfWarAndMagic.ProceduralGeneration.WorldGeneration.Masks;
+using LegendsOfWarAndMagic.ProceduralGeneration.WorldGeneration.Pipeline;
+using LegendsOfWarAndMagic.ProceduralGeneration.WorldGeneration.Terrain;
 using UnityEngine;
 using UnityEngine.Rendering;
 
@@ -27,6 +30,9 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
         private bool hasQueuedCenter;
         private Vector2Int queuedCenter;
         private int queuedRadius;
+        private WorldGenerationLayers worldLayers;
+        private IProceduralTerrainSampler settlementAdjustedSampler;
+        private RoadTerrainCarvingContext roadCarvingContext;
 
         public Bounds WorldBounds => sampler != null ? sampler.WorldBounds : default;
         public int LoadedChunkCount => loadedChunks.Count;
@@ -66,6 +72,26 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
             }
 
             LoadAroundImmediate(Vector3.zero, settings.TerrainChunkInitialLoadRadius);
+        }
+
+        public void ApplyWorldGenerationLayers(WorldGenerationLayers layers)
+        {
+            worldLayers = layers;
+            settlementAdjustedSampler = worldLayers != null
+                ? new SettlementAdjustedTerrainSampler(sampler, settings, worldLayers.Settlements)
+                : null;
+            roadCarvingContext = worldLayers != null
+                ? RoadTerrainCarvingContext.Build(settings, settlementAdjustedSampler ?? sampler, settings.Roads, worldLayers.RoadNetwork)
+                : null;
+            if (worldLayers == null)
+            {
+                return;
+            }
+
+            foreach (var pair in loadedChunks)
+            {
+                ApplyWorldLayerEffects(pair.Value.Terrain, ResolveChunkSeed(pair.Key));
+            }
         }
 
         public void LoadAroundImmediate(Vector3 worldPosition, int radius)
@@ -150,6 +176,11 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
 
         public bool TrySample(float worldX, float worldZ, out Vector3 point, out Vector3 normal)
         {
+            if (TrySampleLoadedTerrain(worldX, worldZ, out point, out normal))
+            {
+                return true;
+            }
+
             if (sampler != null)
             {
                 return sampler.TrySample(worldX, worldZ, out point, out normal);
@@ -162,16 +193,33 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
 
         public float SampleHeight01(float worldX, float worldZ)
         {
+            if (TrySampleLoadedTerrain(worldX, worldZ, out var point, out _))
+            {
+                return settings != null && settings.TerrainHeight > 0f
+                    ? Mathf.Clamp01(point.y / settings.TerrainHeight)
+                    : 0f;
+            }
+
             return sampler != null ? sampler.SampleHeight01(worldX, worldZ) : 0f;
         }
 
         public float SampleHeightMeters(float worldX, float worldZ)
         {
+            if (TrySampleLoadedTerrain(worldX, worldZ, out var point, out _))
+            {
+                return point.y;
+            }
+
             return sampler != null ? sampler.SampleHeightMeters(worldX, worldZ) : 0f;
         }
 
         public Vector3 SampleNormal(float worldX, float worldZ, float sampleDistance = 2f)
         {
+            if (TrySampleLoadedTerrain(worldX, worldZ, out _, out var normal))
+            {
+                return normal;
+            }
+
             return sampler != null ? sampler.SampleNormal(worldX, worldZ, sampleDistance) : Vector3.up;
         }
 
@@ -313,7 +361,10 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                 heightmapResolution = SanitizeHeightmapResolution(settings.TerrainChunkHeightmapResolution),
                 size = new Vector3(width, settings.TerrainHeight, length)
             };
-            terrainData.SetHeights(0, 0, sampler.BuildHeightMap(terrainData.heightmapResolution, minX, minZ, width, length));
+            var heights = sampler.BuildHeightMap(terrainData.heightmapResolution, minX, minZ, width, length);
+            ApplySettlementFlattening(heights, minX, minZ, width, length);
+            TerrainRoadCarver.Apply(heights, minX, minZ, width, length, settings, roadCarvingContext);
+            terrainData.SetHeights(0, 0, heights);
 
             var terrainObject = Terrain.CreateTerrainGameObject(terrainData);
             terrainObject.name = $"TerrainChunk_{coord.x:D2}_{coord.y:D2}";
@@ -322,8 +373,8 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
 
             var terrain = terrainObject.GetComponent<Terrain>();
             ConfigureTerrainRenderCost(terrain, ResolvePixelError(2));
-            GeneratedTerrainVisuals.Apply(terrain, settings, seed);
-            TerrainDetailGenerationStep.ApplyToTerrain(settings, terrain, ResolveChunkSeed(coord), null);
+            GeneratedTerrainVisuals.Apply(terrain, settings, seed, worldLayers?.Masks, worldLayers?.RoadNetwork);
+            TerrainDetailGenerationStep.ApplyToTerrain(settings, terrain, ResolveChunkSeed(coord), null, worldLayers?.Masks);
             AddChunkGrassRenderer(terrain, coord);
 
             return new TerrainChunkRecord(coord, terrainObject, terrain);
@@ -339,12 +390,108 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
             var grassObject = new GameObject($"GeneratedGpuGrass_{coord.x:D2}_{coord.y:D2}");
             grassObject.transform.SetParent(terrain.transform, false);
             var renderer = grassObject.AddComponent<GeneratedGpuGrassRenderer>();
-            renderer.Initialize(terrain, ResolveChunkSeed(coord), settings.GpuGrassSettings, settings.WaterLevel);
+            renderer.Initialize(terrain, ResolveChunkSeed(coord), settings.GpuGrassSettings, settings.WaterLevel, worldLayers?.Masks);
+        }
+
+        private void ApplyWorldLayerEffects(Terrain terrain, int chunkSeed)
+        {
+            if (terrain == null || terrain.terrainData == null || settings == null || worldLayers == null)
+            {
+                return;
+            }
+
+            ApplySettlementFlattening(terrain);
+            GeneratedTerrainVisuals.Apply(terrain, settings, seed, worldLayers.Masks, worldLayers.RoadNetwork);
+            TerrainDetailGenerationStep.ApplyToTerrain(settings, terrain, chunkSeed, null, worldLayers.Masks);
+
+            var grassRenderers = terrain.GetComponentsInChildren<GeneratedGpuGrassRenderer>(true);
+            for (var i = 0; i < grassRenderers.Length; i++)
+            {
+                grassRenderers[i].Initialize(terrain, chunkSeed, settings.GpuGrassSettings, settings.WaterLevel, worldLayers.Masks);
+            }
+        }
+
+        private void ApplySettlementFlattening(Terrain terrain)
+        {
+            if (terrain == null || terrain.terrainData == null || worldLayers == null)
+            {
+                return;
+            }
+
+            var data = terrain.terrainData;
+            var resolution = data.heightmapResolution;
+            var heights = data.GetHeights(0, 0, resolution, resolution);
+            ApplySettlementFlattening(
+                heights,
+                terrain.transform.position.x,
+                terrain.transform.position.z,
+                data.size.x,
+                data.size.z);
+            TerrainRoadCarver.Apply(
+                heights,
+                terrain.transform.position.x,
+                terrain.transform.position.z,
+                data.size.x,
+                data.size.z,
+                settings,
+                roadCarvingContext);
+            data.SetHeights(0, 0, heights);
+        }
+
+        private void ApplySettlementFlattening(float[,] heights, float minX, float minZ, float width, float length)
+        {
+            if (worldLayers == null || settings == null || sampler == null)
+            {
+                return;
+            }
+
+            SettlementTerrainCarver.Apply(
+                heights,
+                minX,
+                minZ,
+                width,
+                length,
+                settings,
+                worldLayers.Settlements,
+                sampler);
         }
 
         private int ResolveChunkSeed(Vector2Int coord)
         {
             return unchecked(seed + coord.x * 73856093 + coord.y * 19349663);
+        }
+
+        private bool TrySampleLoadedTerrain(float worldX, float worldZ, out Vector3 point, out Vector3 normal)
+        {
+            foreach (var pair in loadedChunks)
+            {
+                var terrain = pair.Value.Terrain;
+                if (terrain == null || terrain.terrainData == null)
+                {
+                    continue;
+                }
+
+                var terrainPosition = terrain.transform.position;
+                var size = terrain.terrainData.size;
+                if (worldX < terrainPosition.x ||
+                    worldX > terrainPosition.x + size.x ||
+                    worldZ < terrainPosition.z ||
+                    worldZ > terrainPosition.z + size.z)
+                {
+                    continue;
+                }
+
+                var localX = Mathf.Clamp01((worldX - terrainPosition.x) / size.x);
+                var localZ = Mathf.Clamp01((worldZ - terrainPosition.z) / size.z);
+                var height = terrain.SampleHeight(new Vector3(worldX, 0f, worldZ)) + terrainPosition.y;
+                point = new Vector3(worldX, height, worldZ);
+                normal = terrain.terrainData.GetInterpolatedNormal(localX, localZ).normalized;
+                return true;
+            }
+
+            point = default;
+            normal = default;
+            return false;
         }
 
         private void RefreshNeighborsAndStitch()

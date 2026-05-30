@@ -1,4 +1,6 @@
 using LegendsOfWarAndMagic.ProceduralGeneration.Config;
+using LegendsOfWarAndMagic.ProceduralGeneration.WorldGeneration.Masks;
+using LegendsOfWarAndMagic.ProceduralGeneration.WorldGeneration.Pipeline;
 using System.Collections.Generic;
 using UnityEngine;
 
@@ -29,6 +31,8 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Core
         public bool HasPropExclusion { get; set; }
         public Vector3 PropExclusionCenter { get; set; }
         public float PropExclusionRadius { get; set; }
+        public WorldGenerationLayers WorldLayers { get; set; }
+        public WorldGenerationMaskSet WorldMasks { get; set; }
         public IReadOnlyList<Terrain> GeneratedTerrains => generatedTerrains;
 
         public IReadOnlyDictionary<string, int> SpawnedByCategory => spawnedByCategory;

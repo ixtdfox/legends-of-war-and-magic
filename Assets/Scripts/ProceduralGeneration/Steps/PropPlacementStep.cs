@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using LegendsOfWarAndMagic.ProceduralGeneration.Config;
 using LegendsOfWarAndMagic.ProceduralGeneration.Core;
 using LegendsOfWarAndMagic.ProceduralGeneration.Pipeline;
+using LegendsOfWarAndMagic.ProceduralGeneration.WorldGeneration.Masks;
 using UnityEngine;
 
 namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
@@ -48,7 +49,9 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
             if (context.Settings.TerrainChunkStreamingEnabled)
             {
                 var streamer = propsRoot.gameObject.AddComponent<GeneratedPropChunkStreamer>();
-                streamer.Configure(context.Settings, context.Seed, terrainSampler);
+                streamer.ApplyWorldGenerationLayers(context.WorldLayers);
+                var streamingSampler = context.TerrainChunkStreamer as IProceduralTerrainSampler ?? terrainSampler;
+                streamer.Configure(context.Settings, context.Seed, streamingSampler);
                 context.PropChunkStreamer = streamer;
                 context.RecordSpawn("PropStreaming", 1);
                 progress?.Invoke("Окружение будет подгружаться по чанкам", 1f);
@@ -198,6 +201,23 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                     continue;
                 }
 
+                var point2D = new Vector2(point.x, point.z);
+                if (context.WorldMasks != null && context.WorldMasks.IsNoSpawn(point2D))
+                {
+                    context.RecordRejected(categoryName, "WorldNoSpawnMask");
+                    continue;
+                }
+
+                if (context.WorldMasks != null)
+                {
+                    var reducedVegetation = context.WorldMasks.Evaluate(point2D, GenerationZoneKind.ReducedVegetation);
+                    if (reducedVegetation > 0f && Next01(random) < reducedVegetation * ResolveReducedVegetationRejection(category.Role))
+                    {
+                        context.RecordRejected(categoryName, "ReducedVegetationMask");
+                        continue;
+                    }
+                }
+
                 if (IsInsidePropExclusion(context, category.Role, point))
                 {
                     context.RecordRejected(categoryName, "SpawnClearing");
@@ -226,7 +246,6 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                     continue;
                 }
 
-                var point2D = new Vector2(point.x, point.z);
                 if (minDistanceSqr > 0f && categorySpacing.IsOverlapping(point2D, minDistanceSqr))
                 {
                     context.RecordRejected(categoryName, "MinDistance");
@@ -462,6 +481,23 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
             return role == ProceduralPropRole.Bushes ||
                    role == ProceduralPropRole.GroundPlants ||
                    role == ProceduralPropRole.Log;
+        }
+
+        private static float ResolveReducedVegetationRejection(ProceduralPropRole role)
+        {
+            return role switch
+            {
+                ProceduralPropRole.Tree => 0.95f,
+                ProceduralPropRole.ForestCoreTrees => 0.98f,
+                ProceduralPropRole.ForestAccentTrees => 0.92f,
+                ProceduralPropRole.Bushes => 0.82f,
+                ProceduralPropRole.GroundGrass => 0.75f,
+                ProceduralPropRole.GroundPlants => 0.72f,
+                ProceduralPropRole.Rock => 0.42f,
+                ProceduralPropRole.RocksSmallMedium => 0.36f,
+                ProceduralPropRole.RocksLarge => 0.48f,
+                _ => 0.58f
+            };
         }
 
         private static float ResolveAnchorMinRadius(ProceduralPropRole role)
@@ -1156,30 +1192,33 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
             out Vector3 point,
             out Vector3 normal)
         {
+            if (terrain != null && terrain.terrainData != null)
+            {
+                var terrainPos = terrain.transform.position;
+                var localX = worldX - terrainPos.x;
+                var localZ = worldZ - terrainPos.z;
+                var size = terrain.terrainData.size;
+
+                if (localX >= 0f && localX <= size.x && localZ >= 0f && localZ <= size.z)
+                {
+                    var y = terrain.SampleHeight(new Vector3(worldX, 0f, worldZ)) + terrainPos.y;
+                    point = new Vector3(worldX, y, worldZ);
+
+                    var normalizedX = Mathf.Clamp01(localX / size.x);
+                    var normalizedZ = Mathf.Clamp01(localZ / size.z);
+                    normal = terrain.terrainData.GetInterpolatedNormal(normalizedX, normalizedZ).normalized;
+                    return true;
+                }
+            }
+
             if (terrainSampler != null)
             {
                 return terrainSampler.TrySample(worldX, worldZ, out point, out normal);
             }
 
-            var terrainPos = terrain.transform.position;
-            var localX = worldX - terrainPos.x;
-            var localZ = worldZ - terrainPos.z;
-            var size = terrain.terrainData.size;
-
-            if (localX < 0f || localX > size.x || localZ < 0f || localZ > size.z)
-            {
-                point = default;
-                normal = default;
-                return false;
-            }
-
-            var y = terrain.SampleHeight(new Vector3(worldX, 0f, worldZ)) + terrainPos.y;
-            point = new Vector3(worldX, y, worldZ);
-
-            var normalizedX = Mathf.Clamp01(localX / size.x);
-            var normalizedZ = Mathf.Clamp01(localZ / size.z);
-            normal = terrain.terrainData.GetInterpolatedNormal(normalizedX, normalizedZ).normalized;
-            return true;
+            point = default;
+            normal = default;
+            return false;
         }
 
         private readonly struct CategoryPlacementWork

@@ -10,6 +10,10 @@ using LegendsOfWarAndMagic.ProceduralGeneration;
 using LegendsOfWarAndMagic.ProceduralGeneration.Config;
 using LegendsOfWarAndMagic.ProceduralGeneration.Core;
 using LegendsOfWarAndMagic.ProceduralGeneration.Runtime;
+using LegendsOfWarAndMagic.ProceduralGeneration.WorldGeneration.Pipeline;
+using LegendsOfWarAndMagic.ProceduralGeneration.WorldGeneration.Model;
+using LegendsOfWarAndMagic.Game.World.Domain.Settlements;
+using LegendsOfWarAndMagic.ProceduralGeneration.WorldGeneration.Terrain;
 using LegendsOfWarAndMagic.UI.Shared;
 using UnityEngine;
 using UnityEngine.Rendering;
@@ -70,9 +74,10 @@ namespace LegendsOfWarAndMagic.Game.Bootstrap
 
             var isInitialLocationEntry = string.IsNullOrWhiteSpace(GeneratedWorldSession.PreviousLocationId.Value);
             var spawnPoint = isInitialLocationEntry
-                ? FindSafeSpawnPoint(generator.GeneratedTerrainSampler, settings)
+                ? FindInitialSettlementSpawnPoint(generator, settings)
                 : FindEntrySpawnPoint(generator.GeneratedTerrainSampler, settings, GeneratedWorldSession.EntryDirection);
             yield return PreloadSpawnChunks(generator, settings, spawnPoint, 0.76f, 0.91f);
+            spawnPoint = SnapSpawnPointToGeneratedTerrain(generator, spawnPoint);
             RuntimeLoadingOverlay.SetProgress("Расставляем игрока и переходы...", 0.93f);
             yield return null;
 
@@ -106,8 +111,9 @@ namespace LegendsOfWarAndMagic.Game.Bootstrap
                 mappedSettings.Seed,
                 (message, progress) => RuntimeLoadingOverlay.SetProgress(message, Mathf.Lerp(0.12f, 0.72f, progress)));
 
-            var spawnPoint = FindSafeSpawnPoint(generator.GeneratedTerrainSampler, mappedSettings.Settings);
+            var spawnPoint = FindInitialSettlementSpawnPoint(generator, mappedSettings.Settings);
             yield return PreloadSpawnChunks(generator, mappedSettings.Settings, spawnPoint, 0.74f, 0.91f);
+            spawnPoint = SnapSpawnPointToGeneratedTerrain(generator, spawnPoint);
             RuntimeLoadingOverlay.SetProgress("Расставляем игрока...", 0.93f);
             yield return null;
 
@@ -246,6 +252,194 @@ namespace LegendsOfWarAndMagic.Game.Bootstrap
             }
 
             return new Vector3(0f, settings.TerrainHeight + 3f, 0f);
+        }
+
+        private static Vector3 FindInitialSettlementSpawnPoint(ProceduralLocationGenerator generator, ProceduralLocationSettings settings)
+        {
+            if (generator == null || settings == null || generator.GeneratedWorldLayers?.Settlements == null)
+            {
+                return FindSafeSpawnPoint(generator != null ? generator.GeneratedTerrainSampler : null, settings);
+            }
+
+            var settlement = SelectInitialSpawnSettlement(generator.GeneratedWorldLayers);
+            if (settlement == null)
+            {
+                return FindSafeSpawnPoint(generator.GeneratedTerrainSampler, settings);
+            }
+
+            var sampler = new SettlementAdjustedTerrainSampler(
+                generator.GeneratedTerrainSampler,
+                settings,
+                generator.GeneratedWorldLayers.Settlements);
+            if (TryFindSettlementSpawnCandidate(settlement, sampler, settings, out var point))
+            {
+                return point + Vector3.up * 0.2f;
+            }
+
+            if (sampler.TrySample(settlement.WorldPosition.x, settlement.WorldPosition.y, out point, out _))
+            {
+                return point + Vector3.up * 0.2f;
+            }
+
+            return FindSafeSpawnPoint(generator.GeneratedTerrainSampler, settings);
+        }
+
+        private static GeneratedSettlement SelectInitialSpawnSettlement(WorldGenerationLayers layers)
+        {
+            GeneratedSettlement best = null;
+            var bestScore = float.MinValue;
+            for (var i = 0; i < layers.Settlements.Count; i++)
+            {
+                var settlement = layers.Settlements[i];
+                var score = settlement.Tier switch
+                {
+                    SettlementTier.Village => 100f,
+                    SettlementTier.Town => 92f,
+                    SettlementTier.Hamlet => 84f,
+                    SettlementTier.City => 78f,
+                    SettlementTier.Capital => 76f,
+                    SettlementTier.Camp => 42f,
+                    _ => 50f
+                };
+                score += Mathf.Clamp(settlement.Radius, 0f, 80f) * 0.05f;
+                if (score <= bestScore)
+                {
+                    continue;
+                }
+
+                best = settlement;
+                bestScore = score;
+            }
+
+            return best;
+        }
+
+        private static bool TryFindSettlementSpawnCandidate(
+            GeneratedSettlement settlement,
+            IProceduralTerrainSampler sampler,
+            ProceduralLocationSettings settings,
+            out Vector3 point)
+        {
+            point = default;
+            if (settlement == null || sampler == null || settings == null)
+            {
+                return false;
+            }
+
+            var candidates = new System.Collections.Generic.List<Vector2>(32)
+            {
+                settlement.WorldPosition
+            };
+
+            for (var i = 0; i < settlement.InternalRoads.Count; i++)
+            {
+                var road = settlement.InternalRoads[i];
+                if (road.Points.Count == 0)
+                {
+                    continue;
+                }
+
+                candidates.Add(road.Points[road.Points.Count / 2]);
+                candidates.Add(road.Points[0]);
+                candidates.Add(road.Points[road.Points.Count - 1]);
+            }
+
+            var ringRadius = Mathf.Clamp(settlement.Radius * 0.18f, 8f, 22f);
+            for (var i = 0; i < 16; i++)
+            {
+                var angle = i * Mathf.PI * 2f / 16f;
+                candidates.Add(new Vector2(
+                    settlement.WorldPosition.x + Mathf.Cos(angle) * ringRadius,
+                    settlement.WorldPosition.y + Mathf.Sin(angle) * ringRadius));
+            }
+
+            var bestScore = float.MinValue;
+            for (var i = 0; i < candidates.Count; i++)
+            {
+                var candidate = candidates[i];
+                if (IsInsideSettlementBuilding(settlement, candidate))
+                {
+                    continue;
+                }
+
+                if (!sampler.TrySample(candidate.x, candidate.y, out var sampledPoint, out var normal))
+                {
+                    continue;
+                }
+
+                var slope = Vector3.Angle(normal, Vector3.up);
+                if (slope > 18f || (settings.WaterEnabled && sampledPoint.y <= settings.WaterLevel + SafeWaterClearance))
+                {
+                    continue;
+                }
+
+                var centerDistance = Vector2.Distance(candidate, settlement.WorldPosition);
+                var roadBonus = i > 0 && i <= settlement.InternalRoads.Count * 3 ? 18f : 0f;
+                var score = 100f - centerDistance * 0.7f - slope * 2.8f + roadBonus;
+                if (score <= bestScore)
+                {
+                    continue;
+                }
+
+                bestScore = score;
+                point = sampledPoint;
+            }
+
+            return bestScore > float.MinValue * 0.5f;
+        }
+
+        private static bool IsInsideSettlementBuilding(GeneratedSettlement settlement, Vector2 point)
+        {
+            for (var i = 0; i < settlement.Buildings.Count; i++)
+            {
+                var building = settlement.Buildings[i];
+                var clearance = Mathf.Max(building.FootprintSize.x, building.FootprintSize.y) * 0.5f + PlayerRadius + 2.5f;
+                if (Vector2.Distance(point, building.WorldPosition) <= clearance)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static Vector3 SnapSpawnPointToGeneratedTerrain(ProceduralLocationGenerator generator, Vector3 spawnPoint)
+        {
+            if (generator == null)
+            {
+                return spawnPoint;
+            }
+
+            var sampler = generator.TerrainChunkStreamer as IProceduralTerrainSampler ?? generator.GeneratedTerrainSampler;
+            if (sampler != null && sampler.TrySample(spawnPoint.x, spawnPoint.z, out var point, out _))
+            {
+                return point + Vector3.up * 0.2f;
+            }
+
+            var terrains = Object.FindObjectsByType<Terrain>(FindObjectsSortMode.None);
+            for (var i = 0; i < terrains.Length; i++)
+            {
+                var terrain = terrains[i];
+                if (terrain == null || terrain.terrainData == null)
+                {
+                    continue;
+                }
+
+                var position = terrain.transform.position;
+                var size = terrain.terrainData.size;
+                if (spawnPoint.x < position.x ||
+                    spawnPoint.x > position.x + size.x ||
+                    spawnPoint.z < position.z ||
+                    spawnPoint.z > position.z + size.z)
+                {
+                    continue;
+                }
+
+                var height = terrain.SampleHeight(new Vector3(spawnPoint.x, 0f, spawnPoint.z)) + position.y;
+                return new Vector3(spawnPoint.x, height + 0.2f, spawnPoint.z);
+            }
+
+            return spawnPoint;
         }
 
         private static Vector3 FindEntrySpawnPoint(IProceduralTerrainSampler terrainSampler, ProceduralLocationSettings settings, WorldDirection entryDirection)

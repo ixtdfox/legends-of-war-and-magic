@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using LegendsOfWarAndMagic.ProceduralGeneration.Config;
 using LegendsOfWarAndMagic.ProceduralGeneration.Core;
 using LegendsOfWarAndMagic.ProceduralGeneration.Pipeline;
+using LegendsOfWarAndMagic.ProceduralGeneration.WorldGeneration.Masks;
 using UnityEngine;
 
 namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
@@ -25,7 +26,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
             var terrains = context.GeneratedTerrains;
             if (terrains.Count == 0 && context.GeneratedTerrain != null)
             {
-                ApplyToTerrain(settings, context.GeneratedTerrain, context.Seed, context.RecordTerrainDetailLayer);
+                ApplyToTerrain(settings, context.GeneratedTerrain, context.Seed, context.RecordTerrainDetailLayer, context.WorldMasks);
                 return;
             }
 
@@ -37,7 +38,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                     recorder = context.RecordTerrainDetailLayer;
                 }
 
-                ApplyToTerrain(settings, terrains[i], context.Seed, recorder);
+                ApplyToTerrain(settings, terrains[i], context.Seed, recorder, context.WorldMasks);
             }
         }
 
@@ -45,7 +46,8 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
             ProceduralLocationSettings settings,
             Terrain terrain,
             int seed,
-            Action<string, int, int> recordDetailLayer)
+            Action<string, int, int> recordDetailLayer,
+            WorldGenerationMaskSet worldMasks = null)
         {
             if (settings == null || terrain == null || terrain.terrainData == null || !settings.TerrainDetailsEnabled)
             {
@@ -79,7 +81,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
 
             for (var layer = 0; layer < detailDefinitions.Count; layer++)
             {
-                FillDetailLayer(settings, seed, terrain, terrainData, detailDefinitions[layer], layer, resolution, recordDetailLayer);
+                FillDetailLayer(settings, seed, terrain, terrainData, detailDefinitions[layer], layer, resolution, recordDetailLayer, worldMasks);
             }
         }
 
@@ -161,7 +163,8 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
             RuntimeDetailDefinition definition,
             int layer,
             int resolution,
-            Action<string, int, int> recordDetailLayer)
+            Action<string, int, int> recordDetailLayer,
+            WorldGenerationMaskSet worldMasks)
         {
             var values = new int[resolution, resolution];
             var occupiedCells = 0;
@@ -182,6 +185,12 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                     var worldZ = terrain.transform.position.z + nz * terrainData.size.z;
                     var worldNx = Mathf.InverseLerp(-settings.WorldWidth * 0.5f, settings.WorldWidth * 0.5f, worldX);
                     var worldNz = Mathf.InverseLerp(-settings.WorldLength * 0.5f, settings.WorldLength * 0.5f, worldZ);
+                    var worldPosition = new Vector2(worldX, worldZ);
+                    if (worldMasks != null && worldMasks.IsNoSpawn(worldPosition))
+                    {
+                        continue;
+                    }
+
                     var normalizedHeight = terrainData.GetInterpolatedHeight(nx, nz) / terrainData.size.y;
                     var aboveWater = normalizedHeight - waterLevel01;
                     if (aboveWater < 0.035f)
@@ -198,7 +207,10 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
 
                     var detailNoise = Mathf.PerlinNoise(worldNx * 92f + seedB, worldNz * 92f + seedA);
                     var stochastic = Hash01(seed, x, y, layer);
-                    var density = definition.BaseDensity * settings.TerrainDetailDensityMultiplier * mask * Mathf.Lerp(0.45f, 1.2f, detailNoise);
+                    var vegetationMultiplier = worldMasks != null
+                        ? 1f - worldMasks.Evaluate(worldPosition, GenerationZoneKind.ReducedVegetation) * 0.75f
+                        : 1f;
+                    var density = definition.BaseDensity * settings.TerrainDetailDensityMultiplier * mask * vegetationMultiplier * Mathf.Lerp(0.45f, 1.2f, detailNoise);
                     var whole = Mathf.FloorToInt(density);
                     var fractional = density - whole;
                     if (stochastic < fractional)

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using LegendsOfWarAndMagic.ProceduralGeneration.Config;
+using LegendsOfWarAndMagic.ProceduralGeneration.WorldGeneration.Masks;
 using UnityEngine;
 using UnityEngine.Rendering;
 using Debug = UnityEngine.Debug;
@@ -21,6 +22,9 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
         private const int ShoreLayer = 0;
         private const int RockLayer = 3;
         private const int HardVisibleGrassTriangleLimit = 2500000;
+        private const float GrassAnchorSampleRadius = 0.34f;
+        private const float MaxGrassAnchorSlope = 26f;
+        private const float MaxGrassAnchorHeightSpan = 0.16f;
 
         private static readonly int GrassTintId = Shader.PropertyToID("_GrassTint");
         private static readonly int GrassInstanceDataId = Shader.PropertyToID("_GrassInstanceData");
@@ -73,6 +77,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
         private Bounds terrainBounds;
         private bool initialized;
         private bool terrainTintApplied;
+        private WorldGenerationMaskSet worldMasks;
 
         public int ChunkCount => clusters.Count;
         public int ClusterCount => clusters.Count;
@@ -98,12 +103,13 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
         public Texture2D DensityDebugTexture => densityDebugTexture;
         public GpuGrassSettings RuntimeSettings => ResolveSettings();
 
-        public void Initialize(Terrain terrain, int generationSeed, GpuGrassSettings settings, float terrainWaterLevel)
+        public void Initialize(Terrain terrain, int generationSeed, GpuGrassSettings settings, float terrainWaterLevel, WorldGenerationMaskSet masks = null)
         {
             targetTerrain = terrain;
             seed = generationSeed;
             grassSettings = settings != null ? settings.Clone() : GpuGrassSettings.CreatePreset(ForestQualityLevel.High);
             waterLevel = terrainWaterLevel;
+            worldMasks = masks;
             resolvedGrassSeed = unchecked(seed + grassSettings.GrassSeed * 1009);
             terrainTintApplied = false;
             sourceAlphamaps = null;
@@ -671,6 +677,17 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
             var worldZ = terrainPosition.z + nz * terrainSize.z;
 
             var layerMask = SampleGrassLayer(nx, nz);
+            if (worldMasks != null)
+            {
+                var worldPoint = new Vector2(worldX, worldZ);
+                if (worldMasks.IsNoSpawn(worldPoint))
+                {
+                    return 0f;
+                }
+
+                layerMask *= 1f - worldMasks.Evaluate(worldPoint, GenerationZoneKind.ReducedVegetation) * 0.85f;
+            }
+
             var slopeMask = 1f - SmoothRange(settings.SlopeFadeStart, settings.SlopeFadeEnd, slope);
             var waterMask = SmoothRange(settings.WaterFadeStart, settings.WaterFadeEnd, aboveWater);
             var heightMask = 1f - SmoothRange(settings.HeightFadeStart, settings.HeightFadeEnd, normalizedHeight);
@@ -861,9 +878,11 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                         continue;
                     }
 
-                    var nx = Mathf.InverseLerp(terrainPosition.x, terrainPosition.x + terrainSize.x, worldX);
-                    var nz = Mathf.InverseLerp(terrainPosition.z, terrainPosition.z + terrainSize.z, worldZ);
-                    var height = targetTerrain.terrainData.GetInterpolatedHeight(nx, nz) + terrainPosition.y;
+                    if (!TryResolveStableGrassAnchor(worldX, worldZ, out var height))
+                    {
+                        continue;
+                    }
+
                     if (height <= waterLevel + 0.08f)
                     {
                         continue;
@@ -890,6 +909,52 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                         (byte)Mathf.Clamp(selector, 0, byte.MaxValue)));
                 }
             }
+        }
+
+        private bool TryResolveStableGrassAnchor(float worldX, float worldZ, out float height)
+        {
+            height = 0f;
+            if (targetTerrain == null || targetTerrain.terrainData == null)
+            {
+                return false;
+            }
+
+            var terrainPosition = targetTerrain.transform.position;
+            var terrainSize = targetTerrain.terrainData.size;
+            var nx = Mathf.InverseLerp(terrainPosition.x, terrainPosition.x + terrainSize.x, worldX);
+            var nz = Mathf.InverseLerp(terrainPosition.z, terrainPosition.z + terrainSize.z, worldZ);
+            if (nx < 0f || nx > 1f || nz < 0f || nz > 1f)
+            {
+                return false;
+            }
+
+            var normal = targetTerrain.terrainData.GetInterpolatedNormal(nx, nz);
+            if (Vector3.Angle(normal, Vector3.up) > MaxGrassAnchorSlope)
+            {
+                return false;
+            }
+
+            height = targetTerrain.terrainData.GetInterpolatedHeight(nx, nz) + terrainPosition.y;
+            var minHeight = height;
+            var maxHeight = height;
+            for (var i = 0; i < 8; i++)
+            {
+                var angle = i * Mathf.PI * 0.25f;
+                var sampleX = worldX + Mathf.Cos(angle) * GrassAnchorSampleRadius;
+                var sampleZ = worldZ + Mathf.Sin(angle) * GrassAnchorSampleRadius;
+                var sx = Mathf.InverseLerp(terrainPosition.x, terrainPosition.x + terrainSize.x, sampleX);
+                var sz = Mathf.InverseLerp(terrainPosition.z, terrainPosition.z + terrainSize.z, sampleZ);
+                if (sx < 0f || sx > 1f || sz < 0f || sz > 1f)
+                {
+                    continue;
+                }
+
+                var sampleHeight = targetTerrain.terrainData.GetInterpolatedHeight(sx, sz) + terrainPosition.y;
+                minHeight = Mathf.Min(minHeight, sampleHeight);
+                maxHeight = Mathf.Max(maxHeight, sampleHeight);
+            }
+
+            return maxHeight - minHeight <= MaxGrassAnchorHeightSpan;
         }
 
         private float SampleClusterDensity(float minX, float minZ, float maxX, float maxZ)

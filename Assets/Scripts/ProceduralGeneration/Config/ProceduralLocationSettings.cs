@@ -1,5 +1,8 @@
 using System;
 using System.Collections.Generic;
+using LegendsOfWarAndMagic.ProceduralGeneration.WorldGeneration.PointsOfInterest.Config;
+using LegendsOfWarAndMagic.ProceduralGeneration.WorldGeneration.Roads.Config;
+using LegendsOfWarAndMagic.ProceduralGeneration.WorldGeneration.Settlements.Config;
 using UnityEngine;
 
 namespace LegendsOfWarAndMagic.ProceduralGeneration.Config
@@ -357,6 +360,11 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Config
         [Header("Environment Assets")]
         [SerializeField] private ProceduralEnvironmentAssetCatalog assetCatalog;
 
+        [Header("Settlements, Roads & POI")]
+        [SerializeField] private SettlementGenerationConfig settlements = new();
+        [SerializeField] private PointOfInterestGenerationConfig pointsOfInterest = new();
+        [SerializeField] private RoadGenerationConfig roads = new();
+
         public GlobalGenerationSettings Global => global;
         public SeedGenerationSettings Seed => seed;
         public TerrainGenerationSettings Terrain => terrain;
@@ -409,6 +417,9 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Config
         public int TerrainDetailResolutionPerPatch => terrainDetails.DetailResolutionPerPatch;
         public ForestLodSettings ForestLodSettings => forestRendering.ResolveLodSettings();
         public GpuGrassSettings GpuGrassSettings => forestRendering.ResolveGpuGrassSettings();
+        public SettlementGenerationConfig Settlements => settlements;
+        public PointOfInterestGenerationConfig PointsOfInterest => pointsOfInterest;
+        public RoadGenerationConfig Roads => roads;
 
         public void ConfigureAssetCatalog(ProceduralEnvironmentAssetCatalog catalog)
         {

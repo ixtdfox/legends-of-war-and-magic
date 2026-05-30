@@ -1,0 +1,189 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: dbdd9e83818d4fcfaccd181a01948f20, type: 3}
+  m_Name: DefaultPointOfInterestCatalog
+  m_EditorClassIdentifier: Assembly-CSharp:LegendsOfWarAndMagic.ProceduralGeneration.WorldGeneration.PointsOfInterest.Config:PointOfInterestCatalog
+  entries:
+  - enabled: 1
+    type: 0
+    displayName: Cave Entrance
+    prefabKey: CaveEntrance_Level1
+    prefab: {fileID: 8521500329475563574, guid: 9457c6f5a26d38c5c9de4655125f1590, type: 3}
+    tags:
+    - dungeon
+    - cave
+    - hidden
+    radiusRange: {x: 16, y: 28}
+    dangerRange: {x: 2, y: 6}
+    weight: 1.2
+    connectByRoad: 1
+  - enabled: 1
+    type: 1
+    displayName: Bandit Camp
+    prefabKey: BanditCamp_Level1
+    prefab: {fileID: 3771475543582686378, guid: ae2333f6c0eb97fc7b35355e2767b917, type: 3}
+    tags:
+    - hostile
+    - camp
+    - quest
+    radiusRange: {x: 18, y: 30}
+    dangerRange: {x: 2, y: 6}
+    weight: 1.4
+    connectByRoad: 1
+  - enabled: 1
+    type: 2
+    displayName: Ancient Temple
+    prefabKey: AncientTemple_Level1
+    prefab: {fileID: 1108614262895012321, guid: 58f1ebab4b9e0713ab909db9f3bc0a1a, type: 3}
+    tags:
+    - sacred
+    - ruins
+    - quest
+    radiusRange: {x: 24, y: 42}
+    dangerRange: {x: 3, y: 8}
+    weight: 0.7
+    connectByRoad: 1
+  - enabled: 1
+    type: 3
+    displayName: Abandoned House
+    prefabKey: AbandonedHouse_Level1
+    prefab: {fileID: 9147596053922023544, guid: 2f5dbc822031e1dc6bcd8d5d7c24aedc, type: 3}
+    tags:
+    - abandoned
+    - quest
+    radiusRange: {x: 12, y: 22}
+    dangerRange: {x: 0, y: 3}
+    weight: 1.1
+    connectByRoad: 1
+  - enabled: 1
+    type: 4
+    displayName: Ruins
+    prefabKey: Ruins_Level1
+    prefab: {fileID: 14779248323151409, guid: 1539ab904ded40c6ba8a80912ee88d6a, type: 3}
+    tags:
+    - ruins
+    - abandoned
+    radiusRange: {x: 20, y: 36}
+    dangerRange: {x: 1, y: 5}
+    weight: 1.2
+    connectByRoad: 1
+  - enabled: 1
+    type: 5
+    displayName: Shrine
+    prefabKey: Shrine_Level1
+    prefab: {fileID: 8625536304725649954, guid: 002a96ffa951ac7fda970d0e48d7a220, type: 3}
+    tags:
+    - sacred
+    - quest
+    radiusRange: {x: 10, y: 18}
+    dangerRange: {x: 0, y: 3}
+    weight: 1
+    connectByRoad: 1
+  - enabled: 1
+    type: 6
+    displayName: Stone Circle
+    prefabKey: StoneCircle_Level1
+    prefab: {fileID: 3220618944799037210, guid: 69989809ca9d802adbbfcd3c197e9841, type: 3}
+    tags:
+    - sacred
+    - ancient
+    radiusRange: {x: 18, y: 30}
+    dangerRange: {x: 1, y: 4}
+    weight: 0.8
+    connectByRoad: 0
+  - enabled: 1
+    type: 7
+    displayName: Ruined Watchtower
+    prefabKey: Watchtower_Ruined_Level1
+    prefab: {fileID: 2858091173913387024, guid: 5937930ed02bf50eba148e5c56ee51a2, type: 3}
+    tags:
+    - military
+    - ruins
+    radiusRange: {x: 12, y: 22}
+    dangerRange: {x: 1, y: 5}
+    weight: 1
+    connectByRoad: 1
+  - enabled: 1
+    type: 8
+    displayName: Graveyard
+    prefabKey: Graveyard_Level1
+    prefab: {fileID: 4507375784370015663, guid: fe65f786a653589d19c7eb07d1bf84be, type: 3}
+    tags:
+    - undead
+    - sacred
+    - quest
+    radiusRange: {x: 18, y: 30}
+    dangerRange: {x: 2, y: 6}
+    weight: 0.85
+    connectByRoad: 1
+  - enabled: 1
+    type: 9
+    displayName: Monster Nest
+    prefabKey: BanditCamp_Level1
+    prefab: {fileID: 3771475543582686378, guid: ae2333f6c0eb97fc7b35355e2767b917, type: 3}
+    tags:
+    - hostile
+    - monster
+    - hidden
+    radiusRange: {x: 16, y: 28}
+    dangerRange: {x: 3, y: 8}
+    weight: 0.9
+    connectByRoad: 0
+  - enabled: 1
+    type: 10
+    displayName: Mine
+    prefabKey: ResourceNode_Mine_Level1
+    prefab: {fileID: 5018877148945136923, guid: 1033bc0db38fdd5e5a8b5e008ff890a6, type: 3}
+    tags:
+    - resource
+    - mine
+    radiusRange: {x: 14, y: 26}
+    dangerRange: {x: 0, y: 4}
+    weight: 1.2
+    connectByRoad: 1
+  - enabled: 1
+    type: 11
+    displayName: Hidden Cache
+    prefabKey: StoneCircle_Level1
+    prefab: {fileID: 3220618944799037210, guid: 69989809ca9d802adbbfcd3c197e9841, type: 3}
+    tags:
+    - hidden
+    - treasure
+    radiusRange: {x: 8, y: 14}
+    dangerRange: {x: 0, y: 2}
+    weight: 0.7
+    connectByRoad: 0
+  - enabled: 1
+    type: 12
+    displayName: Ancient Portal
+    prefabKey: AncientTemple_Level1
+    prefab: {fileID: 1108614262895012321, guid: 58f1ebab4b9e0713ab909db9f3bc0a1a, type: 3}
+    tags:
+    - magic
+    - quest
+    - ancient
+    radiusRange: {x: 14, y: 24}
+    dangerRange: {x: 4, y: 9}
+    weight: 0.25
+    connectByRoad: 1
+  - enabled: 1
+    type: 13
+    displayName: Obelisk
+    prefabKey: AncientTemple_Level1
+    prefab: {fileID: 1108614262895012321, guid: 58f1ebab4b9e0713ab909db9f3bc0a1a, type: 3}
+    tags:
+    - magic
+    - ancient
+    radiusRange: {x: 10, y: 18}
+    dangerRange: {x: 2, y: 7}
+    weight: 0.35
+    connectByRoad: 0

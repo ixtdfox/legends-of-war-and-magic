@@ -3,6 +3,7 @@ using System.IO;
 using LegendsOfWarAndMagic.Game.World.Application;
 using LegendsOfWarAndMagic.Game.World.Domain;
 using LegendsOfWarAndMagic.Game.World.Infrastructure.Unity;
+using LegendsOfWarAndMagic.ProceduralGeneration;
 using LegendsOfWarAndMagic.UI.Shared;
 using UnityEngine;
 using UnityEngine.InputSystem;
@@ -18,6 +19,8 @@ namespace LegendsOfWarAndMagic.Game.World.Presentation
         private Image worldMapImage;
         private Image locationMapImage;
         private Transform markerRoot;
+        private Transform locationMarkerRoot;
+        private RuntimeLocationMapOverlay locationOverlay;
         private readonly List<Sprite> loadedSprites = new();
         private readonly LocationSceneLoader sceneLoader = new();
 
@@ -53,6 +56,11 @@ namespace LegendsOfWarAndMagic.Game.World.Presentation
                 HidePanel(worldMapPanel);
                 HidePanel(locationMapPanel);
             }
+
+            if (locationMapPanel != null && locationMapPanel.activeSelf)
+            {
+                locationOverlay?.UpdatePlayerMarker();
+            }
         }
 
         private void BuildUi()
@@ -73,7 +81,8 @@ namespace LegendsOfWarAndMagic.Game.World.Presentation
             RuntimeUiFactory.CreateButton(buttonRow.transform, "Location Map Button", "Карта локации", ToggleLocationMap, new Vector2(250f, 58f));
 
             worldMapPanel = BuildMapPanel(canvas.transform, "World Map Panel", out worldMapImage, out markerRoot);
-            locationMapPanel = BuildMapPanel(canvas.transform, "Location Map Panel", out locationMapImage, out _);
+            locationMapPanel = BuildMapPanel(canvas.transform, "Location Map Panel", out locationMapImage, out locationMarkerRoot);
+            locationOverlay = new RuntimeLocationMapOverlay(locationMapImage, locationMarkerRoot);
             worldMapPanel.SetActive(false);
             locationMapPanel.SetActive(false);
         }
@@ -153,9 +162,10 @@ namespace LegendsOfWarAndMagic.Game.World.Presentation
                 return;
             }
 
-            SetImage(locationMapImage, location.Map.ImagePath);
             locationMapPanel.SetActive(true);
             RuntimeInputBlocker.SetBlocked(locationMapPanel, true);
+            SetImage(locationMapImage, location.Map.ImagePath);
+            locationOverlay.Refresh(FindFirstObjectByType<ProceduralLocationGenerator>());
         }
 
         private static void HideMapPanel(GameObject panel)

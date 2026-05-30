@@ -20,7 +20,12 @@ namespace LegendsOfWarAndMagic.UI.MainMenu
     [DisallowMultipleComponent]
     public sealed class MainMenuController : MonoBehaviour
     {
+        private const int MinPlayableLocationCount = 1;
+        private const int MaxPlayableLocationCount = 15;
+        private const int DefaultPlayableLocationCount = 1;
+
         private GameObject mainPanel;
+        private GameObject newGameOptionsPanel;
         private GameObject settingsPanel;
         private GameObject loadPanel;
         private GameObject loadListRoot;
@@ -29,7 +34,10 @@ namespace LegendsOfWarAndMagic.UI.MainMenu
         private Image progressFill;
         private RectTransform progressFillRect;
         private Text progressPercentText;
+        private Text locationCountText;
+        private Slider locationCountSlider;
         private Button newGameButton;
+        private int selectedPlayableLocationCount = DefaultPlayableLocationCount;
         private bool generationInProgress;
         private bool wasMousePressed;
 
@@ -75,15 +83,17 @@ namespace LegendsOfWarAndMagic.UI.MainMenu
             var title = RuntimeUiFactory.CreateText(mainPanel.transform, "Title", "Legends of War and Magic", 54, new Color(0.44f, 0.10f, 0.04f, 1f), TextAnchor.MiddleCenter, FontStyle.Bold);
             RuntimeUiFactory.AddLayoutElement(title.gameObject, 0f, 138f);
 
-            AddMenuButton("Новая игра", StartNewGame);
+            AddMenuButton("Новая игра", OpenNewGameOptions);
             AddMenuButton("Загрузить мир", OpenLoadWorlds);
             AddMenuButton("Настройки", OpenSettings);
             AddMenuButton("Выйти", QuitGame);
             AddPinnedLoadButton(canvas.transform);
 
+            BuildNewGameOptionsPanel(canvas.transform);
             BuildSettingsPanel(canvas.transform);
             BuildLoadPanel(canvas.transform);
             BuildProgressPanel(canvas.transform);
+            newGameOptionsPanel.SetActive(false);
             settingsPanel.SetActive(false);
             loadPanel.SetActive(false);
             progressPanel.SetActive(false);
@@ -113,8 +123,73 @@ namespace LegendsOfWarAndMagic.UI.MainMenu
             var rect = newGameButton.GetComponent<RectTransform>();
             if (rect != null && RectTransformUtility.RectangleContainsScreenPoint(rect, mouse.position.ReadValue()))
             {
-                StartNewGame();
+                OpenNewGameOptions();
             }
+        }
+
+        private void BuildNewGameOptionsPanel(Transform canvasTransform)
+        {
+            newGameOptionsPanel = RuntimeUiFactory.CreateUiObject(canvasTransform, "New Game Options Panel");
+            var rect = newGameOptionsPanel.GetComponent<RectTransform>();
+            rect.anchorMin = new Vector2(0.5f, 0.5f);
+            rect.anchorMax = new Vector2(0.5f, 0.5f);
+            rect.pivot = new Vector2(0.5f, 0.5f);
+            rect.anchoredPosition = new Vector2(0f, 20f);
+            rect.sizeDelta = new Vector2(860f, 560f);
+
+            RuntimeUiFactory.StyleMenuPanel(newGameOptionsPanel);
+            RuntimeUiFactory.AddVerticalLayout(newGameOptionsPanel, 22f, new RectOffset(76, 76, 54, 58));
+
+            var title = RuntimeUiFactory.CreateHeader(newGameOptionsPanel.transform, "New Game Header", "Новая игра", 40);
+            RuntimeUiFactory.AddLayoutElement(title.transform.parent.gameObject, 0f, 76f);
+
+            var countSection = RuntimeUiFactory.CreateUiObject(newGameOptionsPanel.transform, "Location Count Section");
+            RuntimeUiFactory.StyleSection(countSection);
+            RuntimeUiFactory.AddLayoutElement(countSection, 0f, 220f);
+            RuntimeUiFactory.AddVerticalLayout(countSection, 18f, new RectOffset(32, 32, 26, 26), TextAnchor.UpperCenter);
+
+            var countHeader = RuntimeUiFactory.CreateUiObject(countSection.transform, "Location Count Header Row");
+            RuntimeUiFactory.AddLayoutElement(countHeader, 0f, 64f);
+            RuntimeUiFactory.AddHorizontalLayout(countHeader, 18f, new RectOffset(0, 0, 0, 0), TextAnchor.MiddleCenter);
+
+            var countLabel = RuntimeUiFactory.CreateText(
+                countHeader.transform,
+                "Location Count Label",
+                "Количество локаций",
+                28,
+                new Color(0.30f, 0.15f, 0.07f, 1f),
+                TextAnchor.MiddleLeft,
+                FontStyle.Bold);
+            RuntimeUiFactory.AddLayoutElement(countLabel.gameObject, 420f, 58f);
+
+            locationCountText = RuntimeUiFactory.CreateText(
+                countHeader.transform,
+                "Location Count Value",
+                string.Empty,
+                30,
+                new Color(0.44f, 0.10f, 0.04f, 1f),
+                TextAnchor.MiddleRight,
+                FontStyle.Bold);
+            RuntimeUiFactory.AddLayoutElement(locationCountText.gameObject, 220f, 58f);
+
+            locationCountSlider = RuntimeUiFactory.CreateSlider(
+                countSection.transform,
+                "Location Count Slider",
+                0f,
+                OnLocationCountSliderChanged,
+                new Vector2(0f, 76f));
+            locationCountSlider.minValue = MinPlayableLocationCount;
+            locationCountSlider.maxValue = MaxPlayableLocationCount;
+            locationCountSlider.wholeNumbers = true;
+            locationCountSlider.value = selectedPlayableLocationCount;
+            UpdateLocationCountText();
+
+            var buttonRow = RuntimeUiFactory.CreateUiObject(newGameOptionsPanel.transform, "New Game Button Row");
+            RuntimeUiFactory.AddLayoutElement(buttonRow, 0f, 82f);
+            RuntimeUiFactory.AddHorizontalLayout(buttonRow, 26f, new RectOffset(0, 0, 0, 0), TextAnchor.MiddleCenter);
+
+            RuntimeUiFactory.CreateButton(buttonRow.transform, "Start New Game Button", "Начать", StartNewGame, new Vector2(300f, 68f));
+            RuntimeUiFactory.CreateButton(buttonRow.transform, "New Game Back Button", "Назад", CloseNewGameOptions, new Vector2(300f, 68f));
         }
 
         private void BuildSettingsPanel(Transform canvasTransform)
@@ -159,6 +234,46 @@ namespace LegendsOfWarAndMagic.UI.MainMenu
             rect.anchoredPosition = new Vector2(-24f, -24f);
         }
 
+        private void OpenNewGameOptions()
+        {
+            if (generationInProgress)
+            {
+                return;
+            }
+
+            selectedPlayableLocationCount = Mathf.Clamp(selectedPlayableLocationCount, MinPlayableLocationCount, MaxPlayableLocationCount);
+            if (locationCountSlider != null)
+            {
+                locationCountSlider.SetValueWithoutNotify(selectedPlayableLocationCount);
+            }
+
+            UpdateLocationCountText();
+            mainPanel.SetActive(false);
+            settingsPanel.SetActive(false);
+            loadPanel.SetActive(false);
+            newGameOptionsPanel.SetActive(true);
+        }
+
+        private void CloseNewGameOptions()
+        {
+            newGameOptionsPanel.SetActive(false);
+            mainPanel.SetActive(true);
+        }
+
+        private void OnLocationCountSliderChanged(float value)
+        {
+            selectedPlayableLocationCount = Mathf.Clamp(Mathf.RoundToInt(value), MinPlayableLocationCount, MaxPlayableLocationCount);
+            UpdateLocationCountText();
+        }
+
+        private void UpdateLocationCountText()
+        {
+            if (locationCountText != null)
+            {
+                locationCountText.text = $"{selectedPlayableLocationCount} / {MaxPlayableLocationCount}";
+            }
+        }
+
         private void StartNewGame()
         {
             if (generationInProgress)
@@ -166,14 +281,16 @@ namespace LegendsOfWarAndMagic.UI.MainMenu
                 return;
             }
 
-            Debug.Log("Main menu: New Game requested.");
-            StartCoroutine(GenerateNewWorldRoutine());
+            var locationCount = Mathf.Clamp(selectedPlayableLocationCount, MinPlayableLocationCount, MaxPlayableLocationCount);
+            Debug.Log($"Main menu: New Game requested. Locations={locationCount}.");
+            StartCoroutine(GenerateNewWorldRoutine(locationCount));
         }
 
-        private IEnumerator GenerateNewWorldRoutine()
+        private IEnumerator GenerateNewWorldRoutine(int playableLocationCount)
         {
             generationInProgress = true;
             mainPanel.SetActive(false);
+            newGameOptionsPanel.SetActive(false);
             settingsPanel.SetActive(false);
             loadPanel.SetActive(false);
             progressPanel.SetActive(true);
@@ -185,7 +302,7 @@ namespace LegendsOfWarAndMagic.UI.MainMenu
                 Seed = Environment.TickCount,
                 MinRegions = 8,
                 MaxRegions = 20,
-                PlayableLocationCount = 15
+                PlayableLocationCount = Mathf.Clamp(playableLocationCount, MinPlayableLocationCount, MaxPlayableLocationCount)
             };
 
             var repository = WorldRuntimeServices.CreateRepository();
@@ -362,6 +479,7 @@ namespace LegendsOfWarAndMagic.UI.MainMenu
         private IEnumerator LoadWorldRoutine(WorldSaveSummary summary)
         {
             mainPanel.SetActive(false);
+            newGameOptionsPanel.SetActive(false);
             loadPanel.SetActive(false);
             settingsPanel.SetActive(false);
             progressPanel.SetActive(true);

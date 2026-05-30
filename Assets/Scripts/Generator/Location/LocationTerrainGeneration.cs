@@ -5,6 +5,8 @@ using System.Linq;
 using LegendsOfWarAndMagic.Game.World.Domain;
 using LegendsOfWarAndMagic.ProceduralGeneration.Config;
 using LegendsOfWarAndMagic.ProceduralGeneration.Runtime;
+using LegendsOfWarAndMagic.ProceduralGeneration.WorldGeneration.PointsOfInterest.Config;
+using LegendsOfWarAndMagic.ProceduralGeneration.WorldGeneration.Settlements.Config;
 using UnityEngine;
 using GeneratedWorld = LegendsOfWarAndMagic.Game.World.Domain.World;
 
@@ -123,6 +125,8 @@ namespace LegendsOfWarAndMagic.Generator.Location
             settings.name = $"Runtime Location Settings - {location.Name.Value}";
             settings.hideFlags = HideFlags.DontSave;
             settings.ConfigureAssetCatalog(ProceduralAssetCatalogResolver.LoadDefaultCatalog());
+            settings.Settlements.ConfigureCatalog(Resources.Load<SettlementBuildingCatalog>("ProceduralGeneration/DefaultSettlementBuildingCatalog"));
+            settings.PointsOfInterest.ConfigureCatalog(Resources.Load<PointOfInterestCatalog>("ProceduralGeneration/DefaultPointOfInterestCatalog"));
 
             var profile = LocationTerrainProfile.From(location, safeConfig);
             settings.ConfigureGlobal(worldSize, worldSize);

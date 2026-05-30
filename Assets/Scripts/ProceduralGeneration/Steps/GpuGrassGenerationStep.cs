@@ -23,7 +23,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
             var grassObject = new GameObject("GeneratedGpuGrass");
             grassObject.transform.SetParent(context.GeneratedRoot, false);
             var renderer = grassObject.AddComponent<GeneratedGpuGrassRenderer>();
-            renderer.Initialize(context.GeneratedTerrain, context.Seed, grassSettings, settings.WaterLevel);
+            renderer.Initialize(context.GeneratedTerrain, context.Seed, grassSettings, settings.WaterLevel, context.WorldMasks);
             context.RecordSpawn("GpuGrass", renderer.ChunkCount);
         }
     }
