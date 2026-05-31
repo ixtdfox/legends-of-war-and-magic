@@ -16,7 +16,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
     {
         private const float MinTreeHeightMeters = 8.5f;
         private const float MaxTreeHeightMeters = 25f;
-        private const int AttemptsPerYield = 512;
+        private const int AttemptsPerYield = 128;
 
         public void Execute(GenerationContext context)
         {

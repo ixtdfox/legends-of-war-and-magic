@@ -1,9 +1,12 @@
+using System.Collections;
+using LegendsOfWarAndMagic.DebugTools.Core;
 using LegendsOfWarAndMagic.ProceduralGeneration.Config;
 using LegendsOfWarAndMagic.ProceduralGeneration.WorldGeneration.Masks;
 using LegendsOfWarAndMagic.Game.World.Domain.Roads;
 using LegendsOfWarAndMagic.ProceduralGeneration.WorldGeneration.Model;
 using LegendsOfWarAndMagic.ProceduralGeneration.WorldGeneration.Terrain;
 using UnityEngine;
+using Stopwatch = System.Diagnostics.Stopwatch;
 
 namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
 {
@@ -18,6 +21,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
         private const int TrailRoadLayer = 5;
         private const int DirtRoadLayer = 6;
         private const int StoneRoadLayer = 7;
+        private const double RuntimePaintFrameBudgetMilliseconds = 4d;
 
         public static void Apply(
             Terrain terrain,
@@ -31,6 +35,33 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                 return;
             }
 
+            ApplyTerrainLayers(terrain, settings);
+            PaintTerrain(terrain, settings, seed, worldMasks, roadNetwork);
+        }
+
+        public static IEnumerator ApplyRoutine(
+            Terrain terrain,
+            ProceduralLocationSettings settings,
+            int seed,
+            WorldGenerationMaskSet worldMasks = null,
+            GeneratedRoadNetwork roadNetwork = null)
+        {
+            if (terrain == null || terrain.terrainData == null || settings == null)
+            {
+                yield break;
+            }
+
+            using (DebugSessionManager.Profiler.Scope("GeneratedTerrainVisuals.ApplyTerrainLayers"))
+            {
+                ApplyTerrainLayers(terrain, settings);
+            }
+
+            yield return null;
+            yield return PaintTerrainRoutine(terrain, settings, seed, worldMasks, roadNetwork);
+        }
+
+        private static void ApplyTerrainLayers(Terrain terrain, ProceduralLocationSettings settings)
+        {
             var terrainData = terrain.terrainData;
             terrainData.terrainLayers = new[]
             {
@@ -45,7 +76,6 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
             };
 
             terrainData.alphamapResolution = Mathf.Clamp(terrainData.heightmapResolution / 2, 64, 256);
-            PaintTerrain(terrain, settings, seed, worldMasks, roadNetwork);
         }
 
         private static TerrainLayer ResolveLayer(
@@ -188,7 +218,27 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
             GeneratedRoadNetwork roadNetwork)
         {
             var terrainData = terrain.terrainData;
-            var terrainPosition = terrain.transform.position;
+            var width = terrainData.alphamapWidth;
+            var height = terrainData.alphamapHeight;
+            var layerCount = terrainData.terrainLayers.Length;
+            var alphas = new float[height, width, layerCount];
+            var waterLevel01 = settings.WaterEnabled && settings.TerrainHeight > 0f
+                ? Mathf.Clamp01(settings.WaterLevel / settings.TerrainHeight)
+                : 0f;
+            var seedA = (seed & 0xFFFF) * 0.00037f;
+            var seedB = ((seed >> 8) & 0xFFFF) * 0.00041f;
+            PaintTerrainRows(terrain, settings, seed, worldMasks, roadNetwork, alphas, 0, height, waterLevel01, seedA, seedB);
+            terrainData.SetAlphamaps(0, 0, alphas);
+        }
+
+        private static IEnumerator PaintTerrainRoutine(
+            Terrain terrain,
+            ProceduralLocationSettings settings,
+            int seed,
+            WorldGenerationMaskSet worldMasks,
+            GeneratedRoadNetwork roadNetwork)
+        {
+            var terrainData = terrain.terrainData;
             var width = terrainData.alphamapWidth;
             var height = terrainData.alphamapHeight;
             var layerCount = terrainData.terrainLayers.Length;
@@ -199,7 +249,61 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
             var seedA = (seed & 0xFFFF) * 0.00037f;
             var seedB = ((seed >> 8) & 0xFFFF) * 0.00041f;
 
-            for (var y = 0; y < height; y++)
+            var y = 0;
+            while (y < height)
+            {
+                var startY = y;
+                using (DebugSessionManager.Profiler.Scope("GeneratedTerrainVisuals.PaintTerrainRows", new
+                {
+                    startY,
+                    height
+                }))
+                {
+                    var stopwatch = Stopwatch.StartNew();
+                    do
+                    {
+                        PaintTerrainRows(terrain, settings, seed, worldMasks, roadNetwork, alphas, y, y + 1, waterLevel01, seedA, seedB);
+                        y++;
+                    }
+                    while (y < height && stopwatch.Elapsed.TotalMilliseconds < RuntimePaintFrameBudgetMilliseconds);
+                }
+
+                if (y < height)
+                {
+                    yield return null;
+                }
+            }
+
+            using (DebugSessionManager.Profiler.Scope("GeneratedTerrainVisuals.SetAlphamaps", new
+            {
+                width,
+                height,
+                layerCount
+            }))
+            {
+                terrainData.SetAlphamaps(0, 0, alphas);
+            }
+        }
+
+        private static void PaintTerrainRows(
+            Terrain terrain,
+            ProceduralLocationSettings settings,
+            int seed,
+            WorldGenerationMaskSet worldMasks,
+            GeneratedRoadNetwork roadNetwork,
+            float[,,] alphas,
+            int startY,
+            int endY,
+            float waterLevel01,
+            float seedA,
+            float seedB)
+        {
+            var terrainData = terrain.terrainData;
+            var terrainPosition = terrain.transform.position;
+            var width = terrainData.alphamapWidth;
+            var height = terrainData.alphamapHeight;
+            var safeEndY = Mathf.Min(endY, height);
+            for (var y = startY; y < safeEndY; y++)
             {
                 for (var x = 0; x < width; x++)
                 {
@@ -308,8 +412,6 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                     alphas[y, x, StoneRoadLayer] = stoneRoadWeight / total;
                 }
             }
-
-            terrainData.SetAlphamaps(0, 0, alphas);
         }
 
         private static void ResolveRoadWeights(

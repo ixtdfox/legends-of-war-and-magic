@@ -1,5 +1,7 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
+using LegendsOfWarAndMagic.DebugTools.Core;
 using LegendsOfWarAndMagic.ProceduralGeneration.Config;
 using LegendsOfWarAndMagic.ProceduralGeneration.Core;
 using LegendsOfWarAndMagic.ProceduralGeneration.WorldGeneration.Roads.Config;
@@ -7,6 +9,7 @@ using LegendsOfWarAndMagic.Game.World.Domain.Roads;
 using LegendsOfWarAndMagic.ProceduralGeneration.WorldGeneration.Model;
 using LegendsOfWarAndMagic.ProceduralGeneration.WorldGeneration.Spatial;
 using UnityEngine;
+using Stopwatch = System.Diagnostics.Stopwatch;
 
 namespace LegendsOfWarAndMagic.ProceduralGeneration.WorldGeneration.Terrain
 {
@@ -73,6 +76,8 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.WorldGeneration.Terrain
 
     public static class TerrainRoadCarver
     {
+        private const double RuntimeFrameBudgetMilliseconds = 4d;
+
         public static bool Apply(
             float[,] heights,
             float minX,
@@ -188,6 +193,170 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.WorldGeneration.Terrain
             return true;
         }
 
+        public static IEnumerator ApplyRoutine(
+            float[,] heights,
+            float minX,
+            float minZ,
+            float width,
+            float length,
+            ProceduralLocationSettings settings,
+            RoadTerrainCarvingContext context,
+            Action<bool> completed)
+        {
+            if (heights == null || settings == null || context == null || context.Paths.Count == 0)
+            {
+                completed?.Invoke(false);
+                yield break;
+            }
+
+            var padding = Mathf.Max(16f, context.MaxInfluenceRadius + 2f);
+            var chunkArea = Bounds2D.FromMinMax(
+                new Vector2(minX - padding, minZ - padding),
+                new Vector2(minX + width + padding, minZ + length + padding));
+            var candidates = context.Query(chunkArea);
+            if (candidates.Count == 0)
+            {
+                completed?.Invoke(false);
+                yield break;
+            }
+
+            var candidateArray = new RoadCarvingPath[candidates.Count];
+            for (var i = 0; i < candidates.Count; i++)
+            {
+                candidateArray[i] = candidates[i];
+            }
+
+            var changed = false;
+            var resolutionZ = heights.GetLength(0);
+            var resolutionX = heights.GetLength(1);
+            var terrainHeight = Mathf.Max(1f, settings.TerrainHeight);
+            var invTerrainHeight = 1f / terrainHeight;
+            var spacingX = width / Mathf.Max(1, resolutionX - 1);
+            var spacingZ = length / Mathf.Max(1, resolutionZ - 1);
+
+            var original = (float[,])heights.Clone();
+            var next = (float[,])heights.Clone();
+            var zones = new byte[resolutionZ, resolutionX];
+            var zoneWeights = new float[resolutionZ, resolutionX];
+            var profileHeights = new float[resolutionZ, resolutionX];
+            var allowedSlopes = new float[resolutionZ, resolutionX];
+            var terrainSmoothingIterations = new int[resolutionZ, resolutionX];
+            var gradientLimitIterations = new int[resolutionZ, resolutionX];
+
+            var z = 0;
+            while (z < resolutionZ)
+            {
+                using (DebugSessionManager.Profiler.Scope("TerrainRoadCarver.SampleRows", new
+                {
+                    startZ = z,
+                    resolutionZ,
+                    candidates = candidateArray.Length
+                }))
+                {
+                    var sliceStopwatch = Stopwatch.StartNew();
+                    while (z < resolutionZ)
+                    {
+                        var worldZ = minZ + length * (z / (float)Mathf.Max(1, resolutionZ - 1));
+                        for (var x = 0; x < resolutionX; x++)
+                        {
+                            var worldX = minX + width * (x / (float)Mathf.Max(1, resolutionX - 1));
+                            var worldPosition = new Vector2(worldX, worldZ);
+
+                            if (!TryFindBestSample(candidateArray, worldPosition, out var best))
+                            {
+                                continue;
+                            }
+
+                            var originalMeters = original[z, x] * terrainHeight;
+                            var targetMeters = ResolveTargetHeightMeters(original, z, x, terrainHeight, best);
+                            var weight = ResolveApplyWeight(best);
+                            var nextMeters = Mathf.Lerp(originalMeters, targetMeters, weight);
+                            var nextHeight = Mathf.Clamp01(nextMeters * invTerrainHeight);
+                            if (Mathf.Abs(nextHeight - heights[z, x]) > 0.00001f)
+                            {
+                                next[z, x] = nextHeight;
+                                changed = true;
+                            }
+
+                            zones[z, x] = (byte)best.Zone;
+                            zoneWeights[z, x] = best.MaskWeight;
+                            profileHeights[z, x] = Mathf.Clamp01(best.ProfileHeightMeters * invTerrainHeight);
+                            allowedSlopes[z, x] = best.Settings.MaxHeightDeltaPerMeter;
+                            terrainSmoothingIterations[z, x] = best.Settings.TerrainSmoothingIterations;
+                            gradientLimitIterations[z, x] = best.Settings.GradientLimitIterations;
+                        }
+
+                        z++;
+                        if (sliceStopwatch.Elapsed.TotalMilliseconds >= RuntimeFrameBudgetMilliseconds)
+                        {
+                            break;
+                        }
+                    }
+                }
+
+                if (z < resolutionZ)
+                {
+                    yield return null;
+                }
+            }
+
+            if (!changed)
+            {
+                completed?.Invoke(false);
+                yield break;
+            }
+
+            IReadOnlyList<RoadGradientCorrectionDebug> corrections = Array.Empty<RoadGradientCorrectionDebug>();
+            yield return RoadTerrainSmoothingPass.ApplyRoutine(
+                next,
+                original,
+                zones,
+                zoneWeights,
+                profileHeights,
+                allowedSlopes,
+                terrainSmoothingIterations,
+                gradientLimitIterations,
+                minX,
+                minZ,
+                width,
+                length,
+                spacingX,
+                spacingZ,
+                terrainHeight,
+                result => corrections = result);
+
+            z = 0;
+            while (z < resolutionZ)
+            {
+                using (DebugSessionManager.Profiler.Scope("TerrainRoadCarver.CopyRows", new { startZ = z, resolutionZ }))
+                {
+                    var sliceStopwatch = Stopwatch.StartNew();
+                    while (z < resolutionZ)
+                    {
+                        for (var x = 0; x < resolutionX; x++)
+                        {
+                            heights[z, x] = next[z, x];
+                        }
+
+                        z++;
+                        if (sliceStopwatch.Elapsed.TotalMilliseconds >= RuntimeFrameBudgetMilliseconds)
+                        {
+                            break;
+                        }
+                    }
+                }
+
+                if (z < resolutionZ)
+                {
+                    yield return null;
+                }
+            }
+
+            RoadTerrainCarvingDebug.RecordModifiedSamples(next, original, zones, minX, minZ, width, length, terrainHeight);
+            RoadTerrainCarvingDebug.AddGradientCorrections(corrections);
+            completed?.Invoke(true);
+        }
+
         private static bool TryFindBestSample(RoadCarvingPath[] candidates, Vector2 worldPosition, out RoadCarvingSample best)
         {
             best = default;
@@ -260,6 +429,8 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.WorldGeneration.Terrain
 
     internal static class RoadTerrainSmoothingPass
     {
+        private const double RuntimeFrameBudgetMilliseconds = 4d;
+
         private static readonly Vector2Int[] NeighborOffsets =
         {
             new(1, 0),
@@ -350,6 +521,92 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.WorldGeneration.Terrain
             return corrections;
         }
 
+        public static IEnumerator ApplyRoutine(
+            float[,] heights,
+            float[,] original,
+            byte[,] zones,
+            float[,] zoneWeights,
+            float[,] profileHeights,
+            float[,] allowedSlopes,
+            int[,] terrainSmoothingIterations,
+            int[,] gradientLimitIterations,
+            float minX,
+            float minZ,
+            float width,
+            float length,
+            float spacingX,
+            float spacingZ,
+            float terrainHeight,
+            Action<IReadOnlyList<RoadGradientCorrectionDebug>> completed)
+        {
+            var maxSmoothIterations = MaxValue(terrainSmoothingIterations);
+            if (maxSmoothIterations > 0)
+            {
+                yield return SmoothModifiedTerrainRoutine(
+                    heights,
+                    original,
+                    zones,
+                    zoneWeights,
+                    profileHeights,
+                    terrainSmoothingIterations,
+                    maxSmoothIterations);
+            }
+
+            var maxGradientIterations = MaxValue(gradientLimitIterations);
+            if (maxGradientIterations <= 0)
+            {
+                completed?.Invoke(Array.Empty<RoadGradientCorrectionDebug>());
+                yield break;
+            }
+
+            var corrections = new List<RoadGradientCorrectionDebug>();
+            yield return LimitGradientsRoutine(
+                heights,
+                zones,
+                zoneWeights,
+                allowedSlopes,
+                gradientLimitIterations,
+                maxGradientIterations,
+                minX,
+                minZ,
+                width,
+                length,
+                spacingX,
+                spacingZ,
+                terrainHeight,
+                corrections);
+
+            if (maxSmoothIterations > 0)
+            {
+                yield return SmoothModifiedTerrainRoutine(
+                    heights,
+                    original,
+                    zones,
+                    zoneWeights,
+                    profileHeights,
+                    terrainSmoothingIterations,
+                    Mathf.Max(1, maxSmoothIterations / 2));
+            }
+
+            yield return LimitGradientsRoutine(
+                heights,
+                zones,
+                zoneWeights,
+                allowedSlopes,
+                gradientLimitIterations,
+                Mathf.Max(1, maxGradientIterations / 2),
+                minX,
+                minZ,
+                width,
+                length,
+                spacingX,
+                spacingZ,
+                terrainHeight,
+                corrections);
+
+            completed?.Invoke(corrections);
+        }
+
         private static void SmoothModifiedTerrain(
             float[,] heights,
             float[,] original,
@@ -404,6 +661,80 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.WorldGeneration.Terrain
                 }
 
                 RestoreRoadBed(heights, zones, profileHeights);
+            }
+        }
+
+        private static IEnumerator SmoothModifiedTerrainRoutine(
+            float[,] heights,
+            float[,] original,
+            byte[,] zones,
+            float[,] zoneWeights,
+            float[,] profileHeights,
+            int[,] terrainSmoothingIterations,
+            int maxIterations)
+        {
+            var resolutionZ = heights.GetLength(0);
+            var resolutionX = heights.GetLength(1);
+            var buffer = (float[,])heights.Clone();
+            for (var iteration = 0; iteration < maxIterations; iteration++)
+            {
+                var z = 0;
+                while (z < resolutionZ)
+                {
+                    using (DebugSessionManager.Profiler.Scope("RoadTerrainSmoothing.SmoothRows", new
+                    {
+                        iteration,
+                        maxIterations,
+                        startZ = z
+                    }))
+                    {
+                        var sliceStopwatch = Stopwatch.StartNew();
+                        while (z < resolutionZ)
+                        {
+                            for (var x = 0; x < resolutionX; x++)
+                            {
+                                var zone = (RoadCarvingZone)zones[z, x];
+                                if (zone == RoadCarvingZone.None || terrainSmoothingIterations[z, x] <= iteration)
+                                {
+                                    buffer[z, x] = heights[z, x];
+                                    continue;
+                                }
+
+                                if (zone == RoadCarvingZone.RoadBed)
+                                {
+                                    buffer[z, x] = profileHeights[z, x];
+                                    continue;
+                                }
+
+                                var average = NeighborAverage(heights, z, x);
+                                var baseStrength = zone == RoadCarvingZone.Shoulder ? 0.34f : 0.18f;
+                                var strength = baseStrength * Mathf.Clamp01(zoneWeights[z, x]);
+                                var smoothed = Mathf.Lerp(heights[z, x], average, strength);
+                                if (zone == RoadCarvingZone.Shoulder)
+                                {
+                                    var falloffToOriginal = Mathf.Clamp01(1f - zoneWeights[z, x]);
+                                    smoothed = Mathf.Lerp(smoothed, original[z, x], falloffToOriginal * 0.18f);
+                                }
+
+                                buffer[z, x] = smoothed;
+                            }
+
+                            z++;
+                            if (sliceStopwatch.Elapsed.TotalMilliseconds >= RuntimeFrameBudgetMilliseconds)
+                            {
+                                break;
+                            }
+                        }
+                    }
+
+                    if (z < resolutionZ)
+                    {
+                        yield return null;
+                    }
+                }
+
+                yield return CopyRowsRoutine(buffer, heights, "RoadTerrainSmoothing.CopyRows");
+                yield return RestoreRoadBedRoutine(heights, zones, profileHeights);
             }
         }
 
@@ -489,6 +820,112 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.WorldGeneration.Terrain
             }
 
             return corrections;
+        }
+
+        private static IEnumerator LimitGradientsRoutine(
+            float[,] heights,
+            byte[,] zones,
+            float[,] zoneWeights,
+            float[,] allowedSlopes,
+            int[,] gradientLimitIterations,
+            int maxIterations,
+            float minX,
+            float minZ,
+            float width,
+            float length,
+            float spacingX,
+            float spacingZ,
+            float terrainHeight,
+            List<RoadGradientCorrectionDebug> corrections)
+        {
+            var resolutionZ = heights.GetLength(0);
+            var resolutionX = heights.GetLength(1);
+            for (var iteration = 0; iteration < maxIterations; iteration++)
+            {
+                var changed = false;
+                var z = 0;
+                while (z < resolutionZ)
+                {
+                    using (DebugSessionManager.Profiler.Scope("RoadTerrainSmoothing.LimitGradientRows", new
+                    {
+                        iteration,
+                        maxIterations,
+                        startZ = z
+                    }))
+                    {
+                        var sliceStopwatch = Stopwatch.StartNew();
+                        while (z < resolutionZ)
+                        {
+                            for (var x = 0; x < resolutionX; x++)
+                            {
+                                var zone = (RoadCarvingZone)zones[z, x];
+                                if (zone == RoadCarvingZone.None && zoneWeights[z, x] <= 0f)
+                                {
+                                    continue;
+                                }
+
+                                for (var i = 0; i < NeighborOffsets.Length; i++)
+                                {
+                                    var nx = x + NeighborOffsets[i].x;
+                                    var nz = z + NeighborOffsets[i].y;
+                                    if (nx < 0 || nz < 0 || nx >= resolutionX || nz >= resolutionZ)
+                                    {
+                                        continue;
+                                    }
+
+                                    var iterations = Mathf.Max(gradientLimitIterations[z, x], gradientLimitIterations[nz, nx]);
+                                    if (iterations <= iteration)
+                                    {
+                                        continue;
+                                    }
+
+                                    var spacing = NeighborOffsets[i].x != 0 && NeighborOffsets[i].y != 0
+                                        ? Mathf.Sqrt(spacingX * spacingX + spacingZ * spacingZ)
+                                        : NeighborOffsets[i].x != 0
+                                            ? spacingX
+                                            : spacingZ;
+                                    if (LimitPair(
+                                            heights,
+                                            zones,
+                                            zoneWeights,
+                                            allowedSlopes,
+                                            gradientLimitIterations,
+                                            z,
+                                            x,
+                                            nz,
+                                            nx,
+                                            spacing,
+                                            terrainHeight,
+                                            minX,
+                                            minZ,
+                                            width,
+                                            length,
+                                            corrections))
+                                    {
+                                        changed = true;
+                                    }
+                                }
+                            }
+
+                            z++;
+                            if (sliceStopwatch.Elapsed.TotalMilliseconds >= RuntimeFrameBudgetMilliseconds)
+                            {
+                                break;
+                            }
+                        }
+                    }
+
+                    if (z < resolutionZ)
+                    {
+                        yield return null;
+                    }
+                }
+
+                if (!changed)
+                {
+                    break;
+                }
+            }
         }
 
         private static bool LimitPair(
@@ -624,6 +1061,81 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.WorldGeneration.Terrain
                     {
                         heights[z, x] = profileHeights[z, x];
                     }
+                }
+            }
+        }
+
+        private static IEnumerator RestoreRoadBedRoutine(float[,] heights, byte[,] zones, float[,] profileHeights)
+        {
+            var resolutionZ = heights.GetLength(0);
+            var resolutionX = heights.GetLength(1);
+            var z = 0;
+            while (z < resolutionZ)
+            {
+                using (DebugSessionManager.Profiler.Scope("RoadTerrainSmoothing.RestoreRoadBedRows", new
+                {
+                    startZ = z,
+                    resolutionZ
+                }))
+                {
+                    var sliceStopwatch = Stopwatch.StartNew();
+                    while (z < resolutionZ)
+                    {
+                        for (var x = 0; x < resolutionX; x++)
+                        {
+                            if ((RoadCarvingZone)zones[z, x] == RoadCarvingZone.RoadBed)
+                            {
+                                heights[z, x] = profileHeights[z, x];
+                            }
+                        }
+
+                        z++;
+                        if (sliceStopwatch.Elapsed.TotalMilliseconds >= RuntimeFrameBudgetMilliseconds)
+                        {
+                            break;
+                        }
+                    }
+                }
+
+                if (z < resolutionZ)
+                {
+                    yield return null;
+                }
+            }
+        }
+
+        private static IEnumerator CopyRowsRoutine(float[,] source, float[,] target, string scopeName)
+        {
+            var resolutionZ = source.GetLength(0);
+            var resolutionX = source.GetLength(1);
+            var z = 0;
+            while (z < resolutionZ)
+            {
+                using (DebugSessionManager.Profiler.Scope(scopeName, new
+                {
+                    startZ = z,
+                    resolutionZ
+                }))
+                {
+                    var sliceStopwatch = Stopwatch.StartNew();
+                    while (z < resolutionZ)
+                    {
+                        for (var x = 0; x < resolutionX; x++)
+                        {
+                            target[z, x] = source[z, x];
+                        }
+
+                        z++;
+                        if (sliceStopwatch.Elapsed.TotalMilliseconds >= RuntimeFrameBudgetMilliseconds)
+                        {
+                            break;
+                        }
+                    }
+                }
+
+                if (z < resolutionZ)
+                {
+                    yield return null;
                 }
             }
         }

@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
 using LegendsOfWarAndMagic.DebugTools.Core;
@@ -27,6 +28,9 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
         private const float MaxGrassAnchorSlope = 26f;
         private const float MaxGrassAnchorHeightSpan = 0.16f;
         private const int MaxRuntimeInitialBuildsPerFrame = 1;
+        private const int MaxConcurrentRuntimeBuilds = 1;
+        private const int MaxClusterInstanceSchedulesPerFrame = 8;
+        private const double RuntimeBuildFrameBudgetMilliseconds = 4d;
 
         private static readonly int GrassTintId = Shader.PropertyToID("_GrassTint");
         private static readonly int GrassInstanceDataId = Shader.PropertyToID("_GrassInstanceData");
@@ -44,6 +48,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
         private static readonly int CutoffId = Shader.PropertyToID("_Cutoff");
         private static int runtimeInitialBuildFrame = -1;
         private static int runtimeInitialBuildCount;
+        private static int activeRuntimeBuilds;
 
         [SerializeField] private Terrain targetTerrain;
         [SerializeField] private GpuGrassSettings grassSettings = GpuGrassSettings.CreatePreset(ForestQualityLevel.High);
@@ -59,6 +64,8 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
         private readonly List<Vector4> visibleMidTints = new(32768);
         private readonly List<Vector4> visibleNearInstanceData = new(32768);
         private readonly List<Vector4> visibleMidInstanceData = new(32768);
+        private readonly Queue<int> pendingClusterInstanceBuilds = new();
+        private readonly HashSet<int> pendingClusterInstanceBuildSet = new();
         private readonly Plane[] frustumPlanes = new Plane[6];
         private readonly Matrix4x4[] batchMatrices = new Matrix4x4[MaxInstancesPerBatch];
         private readonly Vector4[] batchTints = new Vector4[MaxInstancesPerBatch];
@@ -85,6 +92,11 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
         private Bounds terrainBounds;
         private bool initialized;
         private bool terrainTintApplied;
+        private bool runtimeInitializationQueued;
+        private Coroutine runtimeInitializationRoutine;
+        private Coroutine clusterInstanceBuildRoutine;
+        private int runtimeBuildVersion;
+        private int scheduledClusterInstanceBuildsThisFrame;
         private WorldGenerationMaskSet worldMasks;
 
         public int ChunkCount => clusters.Count;
@@ -168,6 +180,23 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
         public void ConfigureLazy(Terrain terrain, int generationSeed, GpuGrassSettings settings, float terrainWaterLevel, WorldGenerationMaskSet masks = null)
         {
             ConfigureState(terrain, generationSeed, settings, terrainWaterLevel, masks);
+            QueueRuntimeInitialization();
+        }
+
+        public void QueueRuntimeInitialization()
+        {
+            if (initialized || runtimeInitializationQueued || runtimeInitializationRoutine != null)
+            {
+                return;
+            }
+
+            if (!Application.isPlaying)
+            {
+                BuildRuntimeData();
+                return;
+            }
+
+            runtimeInitializationQueued = true;
         }
 
         private void ConfigureState(Terrain terrain, int generationSeed, GpuGrassSettings settings, float terrainWaterLevel, WorldGenerationMaskSet masks)
@@ -192,6 +221,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
 
         private bool BuildRuntimeData()
         {
+            runtimeInitializationQueued = false;
             var stopwatch = Stopwatch.StartNew();
             using (DebugSessionManager.Profiler.Scope("GpuGrassRenderer.CreateRuntimeResources"))
             {
@@ -214,16 +244,93 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
             }
             stopwatch.Stop();
 
-            LastBuildMilliseconds = stopwatch.Elapsed.TotalMilliseconds;
+            return CompleteRuntimeDataBuild(stopwatch.Elapsed.TotalMilliseconds);
+        }
+
+        private IEnumerator BuildRuntimeDataRoutine(int buildVersion)
+        {
+            activeRuntimeBuilds++;
+            var stopwatch = Stopwatch.StartNew();
+            try
+            {
+                if (!CanContinueRuntimeBuild(buildVersion))
+                {
+                    yield break;
+                }
+
+                using (DebugSessionManager.Profiler.Scope("GpuGrassRenderer.CreateRuntimeResources"))
+                {
+                    CreateRuntimeResources();
+                }
+
+                yield return null;
+                if (!CanContinueRuntimeBuild(buildVersion))
+                {
+                    yield break;
+                }
+
+                using (DebugSessionManager.Profiler.Scope("GpuGrassRenderer.CacheTerrainData"))
+                {
+                    CacheTerrainData();
+                }
+
+                yield return null;
+                if (!CanContinueRuntimeBuild(buildVersion))
+                {
+                    yield break;
+                }
+
+                using (DebugSessionManager.Profiler.Scope("GpuGrassRenderer.ApplyTerrainDensityTint"))
+                {
+                    ApplyTerrainDensityTint();
+                }
+
+                yield return null;
+                if (!CanContinueRuntimeBuild(buildVersion))
+                {
+                    yield break;
+                }
+
+                yield return BuildClusterInstancesRoutine(buildVersion);
+                if (!CanContinueRuntimeBuild(buildVersion))
+                {
+                    yield break;
+                }
+
+                stopwatch.Stop();
+                CompleteRuntimeDataBuild(stopwatch.Elapsed.TotalMilliseconds);
+            }
+            finally
+            {
+                activeRuntimeBuilds = Mathf.Max(0, activeRuntimeBuilds - 1);
+                if (runtimeBuildVersion == buildVersion)
+                {
+                    runtimeInitializationRoutine = null;
+                }
+            }
+        }
+
+        private bool CompleteRuntimeDataBuild(double elapsedMilliseconds)
+        {
+            LastBuildMilliseconds = elapsedMilliseconds;
             initialized = targetTerrain != null &&
                           targetTerrain.terrainData != null &&
                           clusters.Count > 0 &&
                           nearGrassMesh != null &&
                           midGrassMesh != null &&
                           grassMaterial != null;
+            runtimeInitializationQueued = false;
             DebugSessionManager.Current?.Counters.Set("grass.generatedClusters", GeneratedClusterCount);
             DebugSessionManager.Current?.Counters.Set("grass.generatedClumps", GeneratedClumpCount);
             return initialized;
+        }
+
+        private bool CanContinueRuntimeBuild(int buildVersion)
+        {
+            return runtimeBuildVersion == buildVersion &&
+                   isActiveAndEnabled &&
+                   targetTerrain != null &&
+                   targetTerrain.terrainData != null;
         }
 
         public void ApplyRuntimeSettings(GpuGrassSettings settings, bool rebuild)
@@ -270,7 +377,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
 
         public void AddDiagnostics(Camera camera, IList<GpuGrassDiagnostic> diagnostics)
         {
-            if (diagnostics == null || !EnsureInitialized())
+            if (diagnostics == null || !EnsureInitialized(false))
             {
                 return;
             }
@@ -331,6 +438,33 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
             ReleaseRuntimeResources();
         }
 
+        private void Update()
+        {
+            if (!Application.isPlaying)
+            {
+                return;
+            }
+
+            if (runtimeInitializationQueued &&
+                runtimeInitializationRoutine == null &&
+                !initialized &&
+                targetTerrain != null &&
+                targetTerrain.terrainData != null &&
+                activeRuntimeBuilds < MaxConcurrentRuntimeBuilds &&
+                TryReserveRuntimeInitialBuild())
+            {
+                runtimeInitializationQueued = false;
+                runtimeInitializationRoutine = StartCoroutine(BuildRuntimeDataRoutine(runtimeBuildVersion));
+            }
+
+            if (initialized &&
+                clusterInstanceBuildRoutine == null &&
+                pendingClusterInstanceBuilds.Count > 0)
+            {
+                clusterInstanceBuildRoutine = StartCoroutine(ProcessQueuedClusterInstanceBuildsRoutine(runtimeBuildVersion));
+            }
+        }
+
         private void OnDrawGizmosSelected()
         {
             if (!initialized || clusters.Count == 0)
@@ -369,7 +503,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                 clusters = clusters.Count
             }))
             {
-                if (camera == null || !isActiveAndEnabled || !EnsureInitialized())
+                if (camera == null || !isActiveAndEnabled || !EnsureInitialized(false))
                 {
                     return;
                 }
@@ -383,7 +517,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
             }
         }
 
-        private bool EnsureInitialized()
+        private bool EnsureInitialized(bool allowBuild = true)
         {
             if (initialized)
             {
@@ -391,6 +525,11 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
             }
 
             if (targetTerrain == null || targetTerrain.terrainData == null)
+            {
+                return false;
+            }
+
+            if (Application.isPlaying && !allowBuild)
             {
                 return false;
             }
@@ -437,6 +576,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
         {
             ClearVisibleData();
             RuntimeGeneratedInRenderCount = 0;
+            scheduledClusterInstanceBuildsThisFrame = 0;
 
             if (camera == null)
             {
@@ -600,7 +740,11 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
             GpuGrassSettings settings,
             int triangleBudget)
         {
-            var cluster = EnsureClusterInstances(clusterIndex, settings);
+            if (!TryGetGeneratedClusterInstances(clusterIndex, out var cluster))
+            {
+                return;
+            }
+
             if (cluster.InstanceCount <= 0)
             {
                 return;
@@ -667,6 +811,39 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                     LastVisibleMidTriangles += meshTriangles;
                 }
             }
+        }
+
+        private bool TryGetGeneratedClusterInstances(int clusterIndex, out GrassCluster cluster)
+        {
+            cluster = default;
+            if (clusterIndex < 0 || clusterIndex >= clusters.Count)
+            {
+                return false;
+            }
+
+            cluster = clusters[clusterIndex];
+            if (cluster.InstanceStart >= 0)
+            {
+                return true;
+            }
+
+            ScheduleClusterInstanceBuild(clusterIndex);
+            return false;
+        }
+
+        private void ScheduleClusterInstanceBuild(int clusterIndex)
+        {
+            if (clusterIndex < 0 ||
+                clusterIndex >= clusters.Count ||
+                pendingClusterInstanceBuildSet.Contains(clusterIndex) ||
+                scheduledClusterInstanceBuildsThisFrame >= MaxClusterInstanceSchedulesPerFrame)
+            {
+                return;
+            }
+
+            pendingClusterInstanceBuilds.Enqueue(clusterIndex);
+            pendingClusterInstanceBuildSet.Add(clusterIndex);
+            scheduledClusterInstanceBuildsThisFrame++;
         }
 
         private static GrassRing ClassifyRing(float distance, GpuGrassSettings settings)
@@ -939,61 +1116,147 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
 
         private void BuildClusterInstances()
         {
-            clusters.Clear();
-            packedInstances.Clear();
-            GeneratedChunkCount = 0;
-            GeneratedClusterCount = 0;
-            GeneratedClumpCount = 0;
-
-            if (targetTerrain == null || targetTerrain.terrainData == null)
+            if (!TryBeginClusterBuild(
+                    out var terrainPosition,
+                    out var terrainSize,
+                    out var clusterSize,
+                    out var clusterCountX,
+                    out var clusterCountZ))
             {
                 return;
             }
-
-            var settings = ResolvedGrassSettings;
-            var data = targetTerrain.terrainData;
-            var terrainPosition = targetTerrain.transform.position;
-            var terrainSize = data.size;
-            var clusterSize = settings.ClusterSize;
-            var clusterCountX = Mathf.CeilToInt(terrainSize.x / clusterSize);
-            var clusterCountZ = Mathf.CeilToInt(terrainSize.z / clusterSize);
 
             for (var z = 0; z < clusterCountZ; z++)
             {
                 for (var x = 0; x < clusterCountX; x++)
                 {
-                    var minX = terrainPosition.x + x * clusterSize;
-                    var minZ = terrainPosition.z + z * clusterSize;
-                    var maxX = Mathf.Min(terrainPosition.x + terrainSize.x, minX + clusterSize);
-                    var maxZ = Mathf.Min(terrainPosition.z + terrainSize.z, minZ + clusterSize);
-                    var center = new Vector3((minX + maxX) * 0.5f, terrainPosition.y, (minZ + maxZ) * 0.5f);
-                    var densitySummary = SampleClusterDensity(minX, minZ, maxX, maxZ);
-                    if (densitySummary <= 0.015f)
-                    {
-                        continue;
-                    }
-
-                    var bounds = new Bounds(
-                        new Vector3(center.x, terrainPosition.y + terrainSize.y * 0.5f, center.z),
-                        new Vector3(Mathf.Max(0.1f, maxX - minX), terrainSize.y + 3f, Mathf.Max(0.1f, maxZ - minZ)));
-                    clusters.Add(new GrassCluster(
-                        center,
-                        bounds,
-                        x,
-                        z,
-                        minX,
-                        minZ,
-                        maxX,
-                        maxZ,
-                        -1,
-                        0,
-                        densitySummary));
+                    AddClusterIfDense(x, z, terrainPosition, terrainSize, clusterSize);
                 }
             }
 
             GeneratedChunkCount = clusters.Count;
             GeneratedClusterCount = clusters.Count;
             GeneratedClumpCount = 0;
+        }
+
+        private IEnumerator BuildClusterInstancesRoutine(int buildVersion)
+        {
+            if (!TryBeginClusterBuild(
+                    out var terrainPosition,
+                    out var terrainSize,
+                    out var clusterSize,
+                    out var clusterCountX,
+                    out var clusterCountZ))
+            {
+                yield break;
+            }
+
+            var total = clusterCountX * clusterCountZ;
+            var index = 0;
+            while (index < total)
+            {
+                using (DebugSessionManager.Profiler.Scope("GpuGrassRenderer.BuildClusterIndexSlice", new
+                {
+                    start = index,
+                    total,
+                    existingClusters = clusters.Count
+                }))
+                {
+                    var sliceStopwatch = Stopwatch.StartNew();
+                    while (index < total)
+                    {
+                        var x = index % clusterCountX;
+                        var z = index / clusterCountX;
+                        AddClusterIfDense(x, z, terrainPosition, terrainSize, clusterSize);
+                        index++;
+
+                        if (sliceStopwatch.Elapsed.TotalMilliseconds >= RuntimeBuildFrameBudgetMilliseconds)
+                        {
+                            break;
+                        }
+                    }
+                }
+
+                if (!CanContinueRuntimeBuild(buildVersion))
+                {
+                    yield break;
+                }
+
+                if (index < total)
+                {
+                    yield return null;
+                }
+            }
+
+            GeneratedChunkCount = clusters.Count;
+            GeneratedClusterCount = clusters.Count;
+            GeneratedClumpCount = 0;
+        }
+
+        private bool TryBeginClusterBuild(
+            out Vector3 terrainPosition,
+            out Vector3 terrainSize,
+            out float clusterSize,
+            out int clusterCountX,
+            out int clusterCountZ)
+        {
+            clusters.Clear();
+            packedInstances.Clear();
+            pendingClusterInstanceBuilds.Clear();
+            pendingClusterInstanceBuildSet.Clear();
+            GeneratedChunkCount = 0;
+            GeneratedClusterCount = 0;
+            GeneratedClumpCount = 0;
+
+            terrainPosition = default;
+            terrainSize = default;
+            clusterSize = 1f;
+            clusterCountX = 0;
+            clusterCountZ = 0;
+
+            if (targetTerrain == null || targetTerrain.terrainData == null)
+            {
+                return false;
+            }
+
+            var settings = ResolvedGrassSettings;
+            var data = targetTerrain.terrainData;
+            terrainPosition = targetTerrain.transform.position;
+            terrainSize = data.size;
+            clusterSize = settings.ClusterSize;
+            clusterCountX = Mathf.CeilToInt(terrainSize.x / clusterSize);
+            clusterCountZ = Mathf.CeilToInt(terrainSize.z / clusterSize);
+            return clusterCountX > 0 && clusterCountZ > 0;
+        }
+
+        private void AddClusterIfDense(int x, int z, Vector3 terrainPosition, Vector3 terrainSize, float clusterSize)
+        {
+            var minX = terrainPosition.x + x * clusterSize;
+            var minZ = terrainPosition.z + z * clusterSize;
+            var maxX = Mathf.Min(terrainPosition.x + terrainSize.x, minX + clusterSize);
+            var maxZ = Mathf.Min(terrainPosition.z + terrainSize.z, minZ + clusterSize);
+            var center = new Vector3((minX + maxX) * 0.5f, terrainPosition.y, (minZ + maxZ) * 0.5f);
+            var densitySummary = SampleClusterDensity(minX, minZ, maxX, maxZ);
+            if (densitySummary <= 0.015f)
+            {
+                return;
+            }
+
+            var bounds = new Bounds(
+                new Vector3(center.x, terrainPosition.y + terrainSize.y * 0.5f, center.z),
+                new Vector3(Mathf.Max(0.1f, maxX - minX), terrainSize.y + 3f, Mathf.Max(0.1f, maxZ - minZ)));
+            clusters.Add(new GrassCluster(
+                center,
+                bounds,
+                x,
+                z,
+                minX,
+                minZ,
+                maxX,
+                maxZ,
+                -1,
+                0,
+                densitySummary));
         }
 
         private void GenerateClusterInstances(
@@ -1005,66 +1268,213 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
             float maxZ,
             GpuGrassSettings settings)
         {
-            var terrainPosition = targetTerrain.transform.position;
-            var terrainSize = targetTerrain.terrainData.size;
-            var spacing = settings.PlacementSpacing;
-            var cellsX = Mathf.Max(1, Mathf.CeilToInt((maxX - minX) / spacing));
-            var cellsZ = Mathf.Max(1, Mathf.CeilToInt((maxZ - minZ) / spacing));
-            var cellWidth = (maxX - minX) / cellsX;
-            var cellDepth = (maxZ - minZ) / cellsZ;
-
-            for (var z = 0; z < cellsZ; z++)
+            if (!TryCreateClusterGenerationContext(
+                    clusterX,
+                    clusterZ,
+                    minX,
+                    minZ,
+                    maxX,
+                    maxZ,
+                    settings,
+                    out var context))
             {
-                for (var x = 0; x < cellsX; x++)
+                return;
+            }
+
+            for (var z = 0; z < context.CellsZ; z++)
+            {
+                for (var x = 0; x < context.CellsX; x++)
                 {
-                    var saltX = clusterX * 73856093 + x;
-                    var saltZ = clusterZ * 19349663 + z;
-                    var jitterX = Hash01(resolvedGrassSeed, saltX, saltZ, 11);
-                    var jitterZ = Hash01(resolvedGrassSeed, saltX, saltZ, 23);
-                    var worldX = minX + (x + jitterX) * cellWidth;
-                    var worldZ = minZ + (z + jitterZ) * cellDepth;
-                    if (worldX >= maxX || worldZ >= maxZ)
-                    {
-                        continue;
-                    }
-
-                    var density = Mathf.Clamp01(SampleDensityWorld(worldX, worldZ) * settings.DensityMultiplier);
-                    if (density <= 0.02f || Hash01(resolvedGrassSeed, saltX, saltZ, 29) > density)
-                    {
-                        continue;
-                    }
-
-                    if (!TryResolveStableGrassAnchor(worldX, worldZ, out var height))
-                    {
-                        continue;
-                    }
-
-                    if (height <= waterLevel + 0.08f)
-                    {
-                        continue;
-                    }
-
-                    var yaw = Mathf.RoundToInt(Hash01(resolvedGrassSeed, saltX, saltZ, 37) * ushort.MaxValue);
-                    var scale01 = Mathf.Lerp(0.72f, 1.12f, Hash01(resolvedGrassSeed, saltX, saltZ, 41)) *
-                                  Mathf.Lerp(0.9f, 1.08f, density);
-                    var packedScale = Mathf.RoundToInt(Mathf.Clamp01((scale01 - 0.45f) / 0.95f) * ushort.MaxValue);
-                    var variantCount = Mathf.Max(1, settings.AtlasColumns * settings.AtlasRows);
-                    var variant = Mathf.Clamp(
-                        Mathf.FloorToInt(Hash01(resolvedGrassSeed, saltX, saltZ, 47) * variantCount),
-                        0,
-                        variantCount - 1);
-                    var tint = Mathf.RoundToInt(Hash01(resolvedGrassSeed, saltX, saltZ, 53) * byte.MaxValue);
-                    var selector = Mathf.RoundToInt(Hash01(resolvedGrassSeed, saltX, saltZ, 59) * byte.MaxValue);
-
-                    packedInstances.Add(new GrassInstancePacked(
-                        new Vector3(worldX, height + 0.02f, worldZ),
-                        (ushort)Mathf.Clamp(yaw, 0, ushort.MaxValue),
-                        (ushort)Mathf.Clamp(packedScale, 0, ushort.MaxValue),
-                        (byte)variant,
-                        (byte)Mathf.Clamp(tint, 0, byte.MaxValue),
-                        (byte)Mathf.Clamp(selector, 0, byte.MaxValue)));
+                    TryAddClusterInstanceCell(context, x, z);
                 }
             }
+        }
+
+        private IEnumerator ProcessQueuedClusterInstanceBuildsRoutine(int buildVersion)
+        {
+            try
+            {
+                while (CanContinueRuntimeBuild(buildVersion) && pendingClusterInstanceBuilds.Count > 0)
+                {
+                    var clusterIndex = pendingClusterInstanceBuilds.Dequeue();
+                    pendingClusterInstanceBuildSet.Remove(clusterIndex);
+                    if (clusterIndex < 0 || clusterIndex >= clusters.Count)
+                    {
+                        continue;
+                    }
+
+                    var cluster = clusters[clusterIndex];
+                    if (cluster.InstanceStart >= 0)
+                    {
+                        continue;
+                    }
+
+                    yield return GenerateClusterInstancesRoutine(clusterIndex, buildVersion);
+                }
+            }
+            finally
+            {
+                if (runtimeBuildVersion == buildVersion)
+                {
+                    clusterInstanceBuildRoutine = null;
+                }
+            }
+        }
+
+        private IEnumerator GenerateClusterInstancesRoutine(int clusterIndex, int buildVersion)
+        {
+            if (clusterIndex < 0 || clusterIndex >= clusters.Count)
+            {
+                yield break;
+            }
+
+            var cluster = clusters[clusterIndex];
+            if (cluster.InstanceStart >= 0 ||
+                !TryCreateClusterGenerationContext(
+                    cluster.GridX,
+                    cluster.GridZ,
+                    cluster.MinX,
+                    cluster.MinZ,
+                    cluster.MaxX,
+                    cluster.MaxZ,
+                    ResolvedGrassSettings,
+                    out var context))
+            {
+                yield break;
+            }
+
+            var start = packedInstances.Count;
+            var total = context.CellsX * context.CellsZ;
+            var index = 0;
+            while (index < total)
+            {
+                using (DebugSessionManager.Profiler.Scope("GpuGrassRenderer.GenerateClusterInstancesSlice", new
+                {
+                    cluster.GridX,
+                    cluster.GridZ,
+                    start = index,
+                    total
+                }))
+                {
+                    var sliceStopwatch = Stopwatch.StartNew();
+                    while (index < total)
+                    {
+                        var x = index % context.CellsX;
+                        var z = index / context.CellsX;
+                        TryAddClusterInstanceCell(context, x, z);
+                        index++;
+
+                        if (sliceStopwatch.Elapsed.TotalMilliseconds >= RuntimeBuildFrameBudgetMilliseconds)
+                        {
+                            break;
+                        }
+                    }
+                }
+
+                if (!CanContinueRuntimeBuild(buildVersion))
+                {
+                    if (packedInstances.Count > start)
+                    {
+                        packedInstances.RemoveRange(start, packedInstances.Count - start);
+                    }
+
+                    yield break;
+                }
+
+                if (index < total)
+                {
+                    yield return null;
+                }
+            }
+
+            var count = packedInstances.Count - start;
+            if (clusterIndex >= 0 && clusterIndex < clusters.Count && clusters[clusterIndex].InstanceStart < 0)
+            {
+                clusters[clusterIndex] = clusters[clusterIndex].WithInstances(start, count);
+            }
+
+            GeneratedClumpCount = packedInstances.Count;
+            DebugSessionManager.Current?.Counters.Set("grass.generatedClumps", GeneratedClumpCount);
+        }
+
+        private bool TryCreateClusterGenerationContext(
+            int clusterX,
+            int clusterZ,
+            float minX,
+            float minZ,
+            float maxX,
+            float maxZ,
+            GpuGrassSettings settings,
+            out ClusterGenerationContext context)
+        {
+            context = default;
+            if (targetTerrain == null || targetTerrain.terrainData == null || settings == null)
+            {
+                return false;
+            }
+
+            var spacing = Mathf.Max(0.01f, settings.PlacementSpacing);
+            var cellsX = Mathf.Max(1, Mathf.CeilToInt((maxX - minX) / spacing));
+            var cellsZ = Mathf.Max(1, Mathf.CeilToInt((maxZ - minZ) / spacing));
+            context = new ClusterGenerationContext(
+                clusterX,
+                clusterZ,
+                minX,
+                minZ,
+                maxX,
+                maxZ,
+                cellsX,
+                cellsZ,
+                (maxX - minX) / cellsX,
+                (maxZ - minZ) / cellsZ,
+                settings);
+            return true;
+        }
+
+        private void TryAddClusterInstanceCell(ClusterGenerationContext context, int x, int z)
+        {
+            var saltX = context.ClusterX * 73856093 + x;
+            var saltZ = context.ClusterZ * 19349663 + z;
+            var jitterX = Hash01(resolvedGrassSeed, saltX, saltZ, 11);
+            var jitterZ = Hash01(resolvedGrassSeed, saltX, saltZ, 23);
+            var worldX = context.MinX + (x + jitterX) * context.CellWidth;
+            var worldZ = context.MinZ + (z + jitterZ) * context.CellDepth;
+            if (worldX >= context.MaxX || worldZ >= context.MaxZ)
+            {
+                return;
+            }
+
+            var settings = context.Settings;
+            var density = Mathf.Clamp01(SampleDensityWorld(worldX, worldZ) * settings.DensityMultiplier);
+            if (density <= 0.02f || Hash01(resolvedGrassSeed, saltX, saltZ, 29) > density)
+            {
+                return;
+            }
+
+            if (!TryResolveStableGrassAnchor(worldX, worldZ, out var height) || height <= waterLevel + 0.08f)
+            {
+                return;
+            }
+
+            var yaw = Mathf.RoundToInt(Hash01(resolvedGrassSeed, saltX, saltZ, 37) * ushort.MaxValue);
+            var scale01 = Mathf.Lerp(0.72f, 1.12f, Hash01(resolvedGrassSeed, saltX, saltZ, 41)) *
+                          Mathf.Lerp(0.9f, 1.08f, density);
+            var packedScale = Mathf.RoundToInt(Mathf.Clamp01((scale01 - 0.45f) / 0.95f) * ushort.MaxValue);
+            var variantCount = Mathf.Max(1, settings.AtlasColumns * settings.AtlasRows);
+            var variant = Mathf.Clamp(
+                Mathf.FloorToInt(Hash01(resolvedGrassSeed, saltX, saltZ, 47) * variantCount),
+                0,
+                variantCount - 1);
+            var tint = Mathf.RoundToInt(Hash01(resolvedGrassSeed, saltX, saltZ, 53) * byte.MaxValue);
+            var selector = Mathf.RoundToInt(Hash01(resolvedGrassSeed, saltX, saltZ, 59) * byte.MaxValue);
+
+            packedInstances.Add(new GrassInstancePacked(
+                new Vector3(worldX, height + 0.02f, worldZ),
+                (ushort)Mathf.Clamp(yaw, 0, ushort.MaxValue),
+                (ushort)Mathf.Clamp(packedScale, 0, ushort.MaxValue),
+                (byte)variant,
+                (byte)Mathf.Clamp(tint, 0, byte.MaxValue),
+                (byte)Mathf.Clamp(selector, 0, byte.MaxValue)));
         }
 
         private bool TryResolveStableGrassAnchor(float worldX, float worldZ, out float height)
@@ -1374,6 +1784,10 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
 
         private void ReleaseRuntimeResources()
         {
+            runtimeBuildVersion++;
+            runtimeInitializationQueued = false;
+            runtimeInitializationRoutine = null;
+            clusterInstanceBuildRoutine = null;
             DestroyRuntimeObject(nearGrassMesh);
             DestroyRuntimeObject(midGrassMesh);
             DestroyRuntimeObject(grassMaterial);
@@ -1392,6 +1806,8 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
             initialized = false;
             clusters.Clear();
             packedInstances.Clear();
+            pendingClusterInstanceBuilds.Clear();
+            pendingClusterInstanceBuildSet.Clear();
             visibleClusters.Clear();
             ClearVisibleData();
         }
@@ -1646,6 +2062,47 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
             public float YawDegrees => Yaw * (360f / ushort.MaxValue);
             public float Scale => 0.45f + PackedScale * (0.95f / ushort.MaxValue);
             public float Selection01 => Selector / 255f;
+        }
+
+        private readonly struct ClusterGenerationContext
+        {
+            public ClusterGenerationContext(
+                int clusterX,
+                int clusterZ,
+                float minX,
+                float minZ,
+                float maxX,
+                float maxZ,
+                int cellsX,
+                int cellsZ,
+                float cellWidth,
+                float cellDepth,
+                GpuGrassSettings settings)
+            {
+                ClusterX = clusterX;
+                ClusterZ = clusterZ;
+                MinX = minX;
+                MinZ = minZ;
+                MaxX = maxX;
+                MaxZ = maxZ;
+                CellsX = cellsX;
+                CellsZ = cellsZ;
+                CellWidth = cellWidth;
+                CellDepth = cellDepth;
+                Settings = settings;
+            }
+
+            public int ClusterX { get; }
+            public int ClusterZ { get; }
+            public float MinX { get; }
+            public float MinZ { get; }
+            public float MaxX { get; }
+            public float MaxZ { get; }
+            public int CellsX { get; }
+            public int CellsZ { get; }
+            public float CellWidth { get; }
+            public float CellDepth { get; }
+            public GpuGrassSettings Settings { get; }
         }
 
         private readonly struct GrassCluster

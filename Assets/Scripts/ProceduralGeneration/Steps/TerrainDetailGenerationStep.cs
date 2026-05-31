@@ -1,10 +1,13 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
+using LegendsOfWarAndMagic.DebugTools.Core;
 using LegendsOfWarAndMagic.ProceduralGeneration.Config;
 using LegendsOfWarAndMagic.ProceduralGeneration.Core;
 using LegendsOfWarAndMagic.ProceduralGeneration.Pipeline;
 using LegendsOfWarAndMagic.ProceduralGeneration.WorldGeneration.Masks;
 using UnityEngine;
+using Stopwatch = System.Diagnostics.Stopwatch;
 
 namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
 {
@@ -14,6 +17,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
     public sealed class TerrainDetailGenerationStep : IGenerationStep
     {
         private const int MaxDensityPerCell = 28;
+        private const double RuntimeDetailFrameBudgetMilliseconds = 4d;
 
         public void Execute(GenerationContext context)
         {
@@ -82,6 +86,59 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
             for (var layer = 0; layer < detailDefinitions.Count; layer++)
             {
                 FillDetailLayer(settings, seed, terrain, terrainData, detailDefinitions[layer], layer, resolution, recordDetailLayer, worldMasks);
+            }
+        }
+
+        public static IEnumerator ApplyToTerrainRoutine(
+            ProceduralLocationSettings settings,
+            Terrain terrain,
+            int seed,
+            Action<string, int, int> recordDetailLayer,
+            WorldGenerationMaskSet worldMasks = null)
+        {
+            if (settings == null || terrain == null || terrain.terrainData == null || !settings.TerrainDetailsEnabled)
+            {
+                yield break;
+            }
+
+            var detailDefinitions = BuildDetailDefinitions(settings);
+            if (detailDefinitions.Count == 0)
+            {
+                Debug.LogWarning("Terrain detail generation skipped: no terrain detail prototypes could be resolved.");
+                yield break;
+            }
+
+            var terrainData = terrain.terrainData;
+            var resolution = ResolveDetailResolution(settings, terrainData);
+            var patchResolution = ResolveDetailResolutionPerPatch(settings, resolution);
+            using (DebugSessionManager.Profiler.Scope("TerrainDetails.Configure", new
+            {
+                resolution,
+                patchResolution,
+                layers = detailDefinitions.Count
+            }))
+            {
+                terrainData.SetDetailResolution(resolution, patchResolution);
+
+                var prototypes = new DetailPrototype[detailDefinitions.Count];
+                for (var i = 0; i < detailDefinitions.Count; i++)
+                {
+                    prototypes[i] = detailDefinitions[i].CreatePrototype(seed + i * 7919);
+                }
+
+                terrainData.detailPrototypes = prototypes;
+                var gpuGrassSettings = settings.GpuGrassSettings;
+                terrain.detailObjectDistance = gpuGrassSettings.Enabled
+                    ? gpuGrassSettings.TerrainDetailFallbackDistance
+                    : Mathf.Max(terrain.detailObjectDistance, 180f);
+                terrain.detailObjectDensity = Mathf.Max(terrain.detailObjectDensity, gpuGrassSettings.Enabled ? 0.75f : 1f);
+            }
+
+            yield return null;
+
+            for (var layer = 0; layer < detailDefinitions.Count; layer++)
+            {
+                yield return FillDetailLayerRoutine(settings, seed, terrain, terrainData, detailDefinitions[layer], layer, resolution, recordDetailLayer, worldMasks);
             }
         }
 
@@ -175,7 +232,124 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
             var seedA = (seed & 0xFFFF) * 0.00071f + layer * 17.31f;
             var seedB = ((seed >> 8) & 0xFFFF) * 0.00067f + layer * 29.17f;
 
-            for (var y = 0; y < resolution; y++)
+            FillDetailRows(
+                settings,
+                seed,
+                terrain,
+                terrainData,
+                definition,
+                layer,
+                resolution,
+                worldMasks,
+                values,
+                0,
+                resolution,
+                waterLevel01,
+                seedA,
+                seedB,
+                ref occupiedCells,
+                ref totalDensity);
+
+            terrainData.SetDetailLayer(0, 0, layer, values);
+            recordDetailLayer?.Invoke(definition.Name, occupiedCells, totalDensity);
+        }
+
+        private static IEnumerator FillDetailLayerRoutine(
+            ProceduralLocationSettings settings,
+            int seed,
+            Terrain terrain,
+            TerrainData terrainData,
+            RuntimeDetailDefinition definition,
+            int layer,
+            int resolution,
+            Action<string, int, int> recordDetailLayer,
+            WorldGenerationMaskSet worldMasks)
+        {
+            var values = new int[resolution, resolution];
+            var occupiedCells = 0;
+            var totalDensity = 0;
+            var waterLevel01 = settings.WaterEnabled && settings.TerrainHeight > 0f
+                ? Mathf.Clamp01(settings.WaterLevel / settings.TerrainHeight)
+                : -1f;
+            var seedA = (seed & 0xFFFF) * 0.00071f + layer * 17.31f;
+            var seedB = ((seed >> 8) & 0xFFFF) * 0.00067f + layer * 29.17f;
+
+            var y = 0;
+            while (y < resolution)
+            {
+                var startY = y;
+                using (DebugSessionManager.Profiler.Scope("TerrainDetails.FillRows", new
+                {
+                    layer,
+                    definition.Name,
+                    startY,
+                    resolution
+                }))
+                {
+                    var stopwatch = Stopwatch.StartNew();
+                    do
+                    {
+                        FillDetailRows(
+                            settings,
+                            seed,
+                            terrain,
+                            terrainData,
+                            definition,
+                            layer,
+                            resolution,
+                            worldMasks,
+                            values,
+                            y,
+                            y + 1,
+                            waterLevel01,
+                            seedA,
+                            seedB,
+                            ref occupiedCells,
+                            ref totalDensity);
+                        y++;
+                    }
+                    while (y < resolution && stopwatch.Elapsed.TotalMilliseconds < RuntimeDetailFrameBudgetMilliseconds);
+                }
+
+                if (y < resolution)
+                {
+                    yield return null;
+                }
+            }
+
+            using (DebugSessionManager.Profiler.Scope("TerrainDetails.SetDetailLayer", new
+            {
+                layer,
+                definition.Name,
+                resolution
+            }))
+            {
+                terrainData.SetDetailLayer(0, 0, layer, values);
+            }
+
+            recordDetailLayer?.Invoke(definition.Name, occupiedCells, totalDensity);
+        }
+
+        private static void FillDetailRows(
+            ProceduralLocationSettings settings,
+            int seed,
+            Terrain terrain,
+            TerrainData terrainData,
+            RuntimeDetailDefinition definition,
+            int layer,
+            int resolution,
+            WorldGenerationMaskSet worldMasks,
+            int[,] values,
+            int startY,
+            int endY,
+            float waterLevel01,
+            float seedA,
+            float seedB,
+            ref int occupiedCells,
+            ref int totalDensity)
+        {
+            var safeEndY = Mathf.Min(endY, resolution);
+            for (var y = startY; y < safeEndY; y++)
             {
                 for (var x = 0; x < resolution; x++)
                 {
@@ -229,9 +403,6 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                     totalDensity += clamped;
                 }
             }
-
-            terrainData.SetDetailLayer(0, 0, layer, values);
-            recordDetailLayer?.Invoke(definition.Name, occupiedCells, totalDensity);
         }
 
         private static float BuildPlacementMask(
