@@ -1,6 +1,8 @@
 using System.Collections.Generic;
 using System.Diagnostics;
+using LegendsOfWarAndMagic.DebugTools.Core;
 using LegendsOfWarAndMagic.ProceduralGeneration.WorldGeneration.Masks;
+using LegendsOfWarAndMagic.ProceduralGeneration.WorldGeneration.Model;
 using LegendsOfWarAndMagic.ProceduralGeneration.WorldGeneration.PointsOfInterest.Generation;
 using LegendsOfWarAndMagic.ProceduralGeneration.WorldGeneration.Roads.Generation;
 using LegendsOfWarAndMagic.ProceduralGeneration.WorldGeneration.Settlements.Generation;
@@ -29,34 +31,55 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.WorldGeneration.Pipeline
             var masks = new WorldGenerationMaskSet(32f);
             var stopwatch = Stopwatch.StartNew();
 
-            var settlements = settlementGenerator.Generate(
-                request.Settings,
-                request.TerrainSampler,
-                request.Settings.Settlements,
-                masks,
-                request.Seed);
+            IReadOnlyList<GeneratedSettlement> settlements;
+            using (DebugSessionManager.Profiler.Scope("WorldFeatureGeneration.Settlements", new { request.Seed }))
+            {
+                settlements = settlementGenerator.Generate(
+                    request.Settings,
+                    request.TerrainSampler,
+                    request.Settings.Settlements,
+                    masks,
+                    request.Seed);
+            }
             timings["Settlement generation"] = stopwatch.Elapsed.TotalMilliseconds;
 
             stopwatch.Restart();
-            var pointsOfInterest = pointOfInterestGenerator.Generate(
-                request.Settings,
-                request.TerrainSampler,
-                request.Settings.PointsOfInterest,
-                settlements,
-                masks,
-                request.Seed);
+            IReadOnlyList<GeneratedPointOfInterest> pointsOfInterest;
+            using (DebugSessionManager.Profiler.Scope("WorldFeatureGeneration.PointsOfInterest", new
+            {
+                request.Seed,
+                settlementCount = settlements.Count
+            }))
+            {
+                pointsOfInterest = pointOfInterestGenerator.Generate(
+                    request.Settings,
+                    request.TerrainSampler,
+                    request.Settings.PointsOfInterest,
+                    settlements,
+                    masks,
+                    request.Seed);
+            }
             timings["POI generation"] = stopwatch.Elapsed.TotalMilliseconds;
 
             stopwatch.Restart();
-            var roads = roadNetworkGenerator.Generate(
-                request.Settings,
-                request.TerrainSampler,
-                request.Settings.Roads,
-                request.Settings.PointsOfInterest,
-                settlements,
-                pointsOfInterest,
-                masks,
-                request.Seed);
+            GeneratedRoadNetwork roads;
+            using (DebugSessionManager.Profiler.Scope("WorldFeatureGeneration.Roads", new
+            {
+                request.Seed,
+                settlementCount = settlements.Count,
+                poiCount = pointsOfInterest.Count
+            }))
+            {
+                roads = roadNetworkGenerator.Generate(
+                    request.Settings,
+                    request.TerrainSampler,
+                    request.Settings.Roads,
+                    request.Settings.PointsOfInterest,
+                    settlements,
+                    pointsOfInterest,
+                    masks,
+                    request.Seed);
+            }
             timings["Road generation"] = stopwatch.Elapsed.TotalMilliseconds;
 
             var layers = new WorldGenerationLayers(settlements, pointsOfInterest, roads, masks, timings);

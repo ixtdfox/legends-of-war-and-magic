@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using LegendsOfWarAndMagic.DebugTools.Core;
 using LegendsOfWarAndMagic.ProceduralGeneration.Config;
 using LegendsOfWarAndMagic.ProceduralGeneration.WorldGeneration.Masks;
 using UnityEngine;
@@ -105,32 +106,41 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
 
         public void Initialize(Terrain terrain, int generationSeed, GpuGrassSettings settings, float terrainWaterLevel, WorldGenerationMaskSet masks = null)
         {
-            targetTerrain = terrain;
-            seed = generationSeed;
-            grassSettings = settings != null ? settings.Clone() : GpuGrassSettings.CreatePreset(ForestQualityLevel.High);
-            waterLevel = terrainWaterLevel;
-            worldMasks = masks;
-            resolvedGrassSeed = unchecked(seed + grassSettings.GrassSeed * 1009);
-            terrainTintApplied = false;
-            sourceAlphamaps = null;
+            using (DebugSessionManager.Profiler.Scope("GpuGrassRenderer.Initialize", new
+            {
+                terrain = terrain != null ? terrain.name : string.Empty,
+                generationSeed
+            }))
+            {
+                targetTerrain = terrain;
+                seed = generationSeed;
+                grassSettings = settings != null ? settings.Clone() : GpuGrassSettings.CreatePreset(ForestQualityLevel.High);
+                waterLevel = terrainWaterLevel;
+                worldMasks = masks;
+                resolvedGrassSeed = unchecked(seed + grassSettings.GrassSeed * 1009);
+                terrainTintApplied = false;
+                sourceAlphamaps = null;
 
-            ReleaseRuntimeResources();
+                ReleaseRuntimeResources();
 
-            var stopwatch = Stopwatch.StartNew();
-            CreateRuntimeResources();
-            CacheTerrainData();
-            BuildDensityGrid();
-            ApplyTerrainDensityTint();
-            BuildClusterInstances();
-            stopwatch.Stop();
+                var stopwatch = Stopwatch.StartNew();
+                CreateRuntimeResources();
+                CacheTerrainData();
+                BuildDensityGrid();
+                ApplyTerrainDensityTint();
+                BuildClusterInstances();
+                stopwatch.Stop();
 
-            LastBuildMilliseconds = stopwatch.Elapsed.TotalMilliseconds;
-            initialized = targetTerrain != null &&
-                          targetTerrain.terrainData != null &&
-                          clusters.Count > 0 &&
-                          nearGrassMesh != null &&
-                          midGrassMesh != null &&
-                          grassMaterial != null;
+                LastBuildMilliseconds = stopwatch.Elapsed.TotalMilliseconds;
+                initialized = targetTerrain != null &&
+                              targetTerrain.terrainData != null &&
+                              clusters.Count > 0 &&
+                              nearGrassMesh != null &&
+                              midGrassMesh != null &&
+                              grassMaterial != null;
+                DebugSessionManager.Current?.Counters.Set("grass.generatedClusters", GeneratedClusterCount);
+                DebugSessionManager.Current?.Counters.Set("grass.generatedClumps", GeneratedClumpCount);
+            }
         }
 
         public void ApplyRuntimeSettings(GpuGrassSettings settings, bool rebuild)
@@ -159,32 +169,38 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
 
         public void RebuildRuntimeResources()
         {
-            if (targetTerrain == null || targetTerrain.terrainData == null)
+            using (DebugSessionManager.Profiler.Scope("GpuGrassRenderer.RebuildRuntimeResources", new
             {
-                initialized = false;
-                return;
-            }
-
-            ReleaseRuntimeResources();
-
-            var stopwatch = Stopwatch.StartNew();
-            CreateRuntimeResources();
-            CacheTerrainData();
-            BuildDensityGrid();
-            if (ResolveSettings().EnableTerrainDensityTint)
+                terrain = targetTerrain != null ? targetTerrain.name : string.Empty
+            }))
             {
-                ApplyTerrainDensityTint();
-            }
-            else
-            {
-                RestoreTerrainDensityTint();
-            }
+                if (targetTerrain == null || targetTerrain.terrainData == null)
+                {
+                    initialized = false;
+                    return;
+                }
 
-            BuildClusterInstances();
-            stopwatch.Stop();
+                ReleaseRuntimeResources();
 
-            LastBuildMilliseconds = stopwatch.Elapsed.TotalMilliseconds;
-            initialized = clusters.Count > 0 && nearGrassMesh != null && midGrassMesh != null && grassMaterial != null;
+                var stopwatch = Stopwatch.StartNew();
+                CreateRuntimeResources();
+                CacheTerrainData();
+                BuildDensityGrid();
+                if (ResolveSettings().EnableTerrainDensityTint)
+                {
+                    ApplyTerrainDensityTint();
+                }
+                else
+                {
+                    RestoreTerrainDensityTint();
+                }
+
+                BuildClusterInstances();
+                stopwatch.Stop();
+
+                LastBuildMilliseconds = stopwatch.Elapsed.TotalMilliseconds;
+                initialized = clusters.Count > 0 && nearGrassMesh != null && midGrassMesh != null && grassMaterial != null;
+            }
         }
 
         public void AddDiagnostics(Camera camera, IList<GpuGrassDiagnostic> diagnostics)
@@ -282,14 +298,24 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
 
         private void DrawForCamera(Camera camera)
         {
-            if (camera == null || !isActiveAndEnabled || !EnsureInitialized())
+            using (DebugSessionManager.Profiler.Scope("GpuGrassRenderer.DrawForCamera", new
             {
-                return;
-            }
+                camera = camera != null ? camera.name : string.Empty,
+                clusters = clusters.Count
+            }))
+            {
+                if (camera == null || !isActiveAndEnabled || !EnsureInitialized())
+                {
+                    return;
+                }
 
-            PrepareVisibleInstances(camera);
-            DrawInstances(camera, nearGrassMesh, visibleNearMatrices, visibleNearTints, visibleNearInstanceData, ResolveSettings().EnableGrassShadows);
-            DrawInstances(camera, midGrassMesh, visibleMidMatrices, visibleMidTints, visibleMidInstanceData, false);
+                PrepareVisibleInstances(camera);
+                DrawInstances(camera, nearGrassMesh, visibleNearMatrices, visibleNearTints, visibleNearInstanceData, ResolveSettings().EnableGrassShadows);
+                DrawInstances(camera, midGrassMesh, visibleMidMatrices, visibleMidTints, visibleMidInstanceData, false);
+                DebugSessionManager.Current?.Counters.Set("grass.visibleNearInstances", LastVisibleNearInstances);
+                DebugSessionManager.Current?.Counters.Set("grass.visibleMidInstances", LastVisibleMidInstances);
+                DebugSessionManager.Current?.Counters.Set("grass.visibleTriangles", LastVisibleGrassTriangles);
+            }
         }
 
         private bool EnsureInitialized()

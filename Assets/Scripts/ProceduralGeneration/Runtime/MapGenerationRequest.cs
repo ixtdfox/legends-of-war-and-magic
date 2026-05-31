@@ -50,6 +50,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Runtime
         public float GrassHighDetailDistance { get; set; } = 18f;
         public float GrassDrawDistance { get; set; } = 120f;
         public string SeedText { get; set; } = string.Empty;
+        public bool DebugEnabled { get; set; }
 
         public static MapGenerationRequest CreateDefault()
         {
@@ -70,7 +71,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Runtime
 
         public string BuildSummary(int resolvedSeed)
         {
-            return $"Size={MapSize}, Land={LandType}, Water={WaterAmount}, Relief={Relief}, Props={PropDensity}, Forest={Clamp01(TreeDensity):P0}, Grass={Clamp01(GrassSaturation):P0}, GrassLOD={Math.Max(0f, GrassHighDetailDistance):0}m/{Math.Max(0f, GrassDrawDistance):0}m, Seed={resolvedSeed}";
+            return $"Size={MapSize}, Land={LandType}, Water={WaterAmount}, Relief={Relief}, Props={PropDensity}, Forest={Clamp01(TreeDensity):P0}, Grass={Clamp01(GrassSaturation):P0}, GrassLOD={Math.Max(0f, GrassHighDetailDistance):0}m/{Math.Max(0f, GrassDrawDistance):0}m, Seed={resolvedSeed}, Debug={DebugEnabled}";
         }
 
         private static float Clamp01(float value)

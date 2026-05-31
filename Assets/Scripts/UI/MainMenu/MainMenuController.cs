@@ -2,6 +2,8 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.IO;
+using LegendsOfWarAndMagic.DebugTools.Core;
+using LegendsOfWarAndMagic.DebugTools.UnityIntegration;
 using LegendsOfWarAndMagic.Game.World.Application;
 using LegendsOfWarAndMagic.Game.World.Domain;
 using LegendsOfWarAndMagic.Game.World.Infrastructure.Unity;
@@ -38,6 +40,7 @@ namespace LegendsOfWarAndMagic.UI.MainMenu
         private Slider locationCountSlider;
         private Button newGameButton;
         private int selectedPlayableLocationCount = DefaultPlayableLocationCount;
+        private bool selectedDebugEnabled;
         private bool generationInProgress;
         private bool wasMousePressed;
 
@@ -135,7 +138,7 @@ namespace LegendsOfWarAndMagic.UI.MainMenu
             rect.anchorMax = new Vector2(0.5f, 0.5f);
             rect.pivot = new Vector2(0.5f, 0.5f);
             rect.anchoredPosition = new Vector2(0f, 20f);
-            rect.sizeDelta = new Vector2(860f, 560f);
+            rect.sizeDelta = new Vector2(860f, 650f);
 
             RuntimeUiFactory.StyleMenuPanel(newGameOptionsPanel);
             RuntimeUiFactory.AddVerticalLayout(newGameOptionsPanel, 22f, new RectOffset(76, 76, 54, 58));
@@ -183,6 +186,18 @@ namespace LegendsOfWarAndMagic.UI.MainMenu
             locationCountSlider.wholeNumbers = true;
             locationCountSlider.value = selectedPlayableLocationCount;
             UpdateLocationCountText();
+
+            var debugSection = RuntimeUiFactory.CreateUiObject(newGameOptionsPanel.transform, "Debug Section");
+            RuntimeUiFactory.StyleSection(debugSection);
+            RuntimeUiFactory.AddLayoutElement(debugSection, 0f, 78f);
+            RuntimeUiFactory.AddVerticalLayout(debugSection, 0f, new RectOffset(0, 0, 0, 0), TextAnchor.MiddleCenter);
+            RuntimeUiFactory.CreateToggle(
+                debugSection.transform,
+                "Enable Debug Toggle",
+                "Включить debug",
+                selectedDebugEnabled,
+                value => selectedDebugEnabled = value,
+                new Vector2(0f, 62f));
 
             var buttonRow = RuntimeUiFactory.CreateUiObject(newGameOptionsPanel.transform, "New Game Button Row");
             RuntimeUiFactory.AddLayoutElement(buttonRow, 0f, 82f);
@@ -282,11 +297,11 @@ namespace LegendsOfWarAndMagic.UI.MainMenu
             }
 
             var locationCount = Mathf.Clamp(selectedPlayableLocationCount, MinPlayableLocationCount, MaxPlayableLocationCount);
-            Debug.Log($"Main menu: New Game requested. Locations={locationCount}.");
-            StartCoroutine(GenerateNewWorldRoutine(locationCount));
+            Debug.Log($"Main menu: New Game requested. Locations={locationCount}. Debug={selectedDebugEnabled}");
+            StartCoroutine(GenerateNewWorldRoutine(locationCount, selectedDebugEnabled));
         }
 
-        private IEnumerator GenerateNewWorldRoutine(int playableLocationCount)
+        private IEnumerator GenerateNewWorldRoutine(int playableLocationCount, bool debugEnabled)
         {
             generationInProgress = true;
             mainPanel.SetActive(false);
@@ -302,8 +317,29 @@ namespace LegendsOfWarAndMagic.UI.MainMenu
                 Seed = Environment.TickCount,
                 MinRegions = 8,
                 MaxRegions = 20,
-                PlayableLocationCount = Mathf.Clamp(playableLocationCount, MinPlayableLocationCount, MaxPlayableLocationCount)
+                PlayableLocationCount = Mathf.Clamp(playableLocationCount, MinPlayableLocationCount, MaxPlayableLocationCount),
+                DebugEnabled = debugEnabled
             };
+
+            if (debugEnabled)
+            {
+                var session = DebugSessionManager.StartSession(new DebugSessionConfig
+                {
+                    Enabled = true,
+                    Source = "MainMenu.NewGame",
+                    Label = "Generated world session",
+                    Seed = config.Seed,
+                    Summary = config.BuildSnapshot(),
+                    Settings = DebugGenerationInstrumentation.BuildWorldGenerationConfigSnapshot(config)
+                });
+                DebugSessionManager.BeginGeneration("GeneratedWorldSession.Generation", DebugGenerationInstrumentation.BuildWorldGenerationConfigSnapshot(config));
+                SetProgress($"Debug output: {session.RootDirectory}", 0.04f);
+                yield return null;
+            }
+            else
+            {
+                DebugSessionManager.EndSession();
+            }
 
             var repository = WorldRuntimeServices.CreateRepository();
             var worldGenerator = new TopDownWorldGenerator();
@@ -313,13 +349,21 @@ namespace LegendsOfWarAndMagic.UI.MainMenu
 
             SetProgress("Генерируем структуру мира...", 0.06f);
             yield return null;
-            var world = worldGenerator.Generate(config, message => SetProgress(TranslateProgress(message), 0.10f));
+            LegendsOfWarAndMagic.Game.World.Domain.World world;
+            using (DebugSessionManager.Profiler.Scope("TopDownWorldGenerator.Generate", DebugGenerationInstrumentation.BuildWorldGenerationConfigSnapshot(config)))
+            {
+                world = worldGenerator.Generate(config, message => SetProgress(TranslateProgress(message), 0.10f));
+            }
             var worldDirectory = repository.GetWorldDirectory(world.Id);
 
             SetProgress("Рисуем карту мира...", 0.24f);
             yield return null;
             var worldMapPath = Path.Combine(worldDirectory, "Maps", "world_map.png");
-            var worldMap = worldMapRenderer.Render(world, worldMapPath, new WorldMapRenderSettings());
+            WorldMapRenderResult worldMap;
+            using (DebugSessionManager.Profiler.Scope("WorldMapRenderer.Render", new { worldMapPath }))
+            {
+                worldMap = worldMapRenderer.Render(world, worldMapPath, new WorldMapRenderSettings());
+            }
             world = world.WithMap(new WorldMap(worldMap.ImagePath, worldMap.Markers));
 
             var generatedLocations = new List<WorldLocation>();
@@ -334,13 +378,26 @@ namespace LegendsOfWarAndMagic.UI.MainMenu
                 yield return null;
 
                 var locationDirectory = Path.Combine(worldDirectory, "Locations", location.Id.Value);
-                var terrain = locationTerrainGenerator.Generate(world, location, LocationGenerationConfig.CreateDefault());
+                GeneratedLocationTerrain terrain;
+                using (DebugSessionManager.Profiler.Scope("LegacyLocationTerrainGenerator.Generate", new
+                {
+                    location = location.Name.Value,
+                    locationId = location.Id.Value,
+                    location.TerrainSeed
+                }))
+                {
+                    terrain = locationTerrainGenerator.Generate(world, location, LocationGenerationConfig.CreateDefault());
+                }
                 SetProgress(
                     $"Сохраняем terrain: {locationIndex + 1} / {world.Locations.Count}",
                     LocationGenerationProgress(stageIndex + 1, locationStageCount));
                 yield return null;
 
-                var terrainPath = terrain.Save(locationDirectory);
+                string terrainPath;
+                using (DebugSessionManager.Profiler.Scope("LegacyLocationTerrain.Save", new { locationDirectory }))
+                {
+                    terrainPath = terrain.Save(locationDirectory);
+                }
                 var locationMapPath = Path.Combine(locationDirectory, "location_map.png");
                 var locationWithTerrain = location.WithRuntimeAssets(terrainPath, locationMapPath);
                 SetProgress(
@@ -348,7 +405,11 @@ namespace LegendsOfWarAndMagic.UI.MainMenu
                     LocationGenerationProgress(stageIndex + 2, locationStageCount));
                 yield return null;
 
-                var locationMap = locationMapRenderer.Render(world, locationWithTerrain, locationMapPath, new LocationMapRenderSettings());
+                LocationMapRenderResult locationMap;
+                using (DebugSessionManager.Profiler.Scope("LocationMapRenderer.Render", new { locationMapPath }))
+                {
+                    locationMap = locationMapRenderer.Render(world, locationWithTerrain, locationMapPath, new LocationMapRenderSettings());
+                }
                 generatedLocations.Add(location.WithRuntimeAssets(terrainPath, locationMap.ImagePath));
                 locationIndex++;
                 SetProgress(
@@ -360,7 +421,10 @@ namespace LegendsOfWarAndMagic.UI.MainMenu
             SetProgress("Сохраняем мир...", 0.93f);
             yield return null;
             world = world.WithLocations(generatedLocations);
-            repository.Save(world);
+            using (DebugSessionManager.Profiler.Scope("WorldRepository.Save", new { worldId = world.Id.Value, worldDirectory }))
+            {
+                repository.Save(world);
+            }
 
             GeneratedWorldSession.Start(world);
             GeneratedWorldRuntimeState.SaveCurrentSession();

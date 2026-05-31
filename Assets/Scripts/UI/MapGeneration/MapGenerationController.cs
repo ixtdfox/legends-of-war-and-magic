@@ -27,6 +27,7 @@ namespace LegendsOfWarAndMagic.UI.MapGeneration
         private float selectedGrassSaturation = 0.95f;
         private float selectedGrassHighDetailDistance = 18f;
         private float selectedGrassDrawDistance = 120f;
+        private bool selectedDebugEnabled;
 
         private Button[] sizeButtons;
         private Button[] landButtons;
@@ -116,6 +117,7 @@ namespace LegendsOfWarAndMagic.UI.MapGeneration
             CreateTreeDensityRow(scrollContent);
             CreateGrassSettingsSection(scrollContent);
             CreateSeedRow(scrollContent);
+            CreateDebugRow(scrollContent);
             CreateNavigationRow(panel.transform);
 
             UpdateSelected(sizeButtons, (int)selectedSize);
@@ -275,6 +277,21 @@ namespace LegendsOfWarAndMagic.UI.MapGeneration
             RuntimeUiFactory.CreateButton(section.transform, "Random Seed Button", "Случайный seed", RandomizeSeed, new Vector2(290f, 56f));
         }
 
+        private void CreateDebugRow(Transform parent)
+        {
+            var section = RuntimeUiFactory.CreateUiObject(parent, "Debug Section");
+            RuntimeUiFactory.StyleSection(section);
+            RuntimeUiFactory.AddLayoutElement(section, 0f, 76f);
+            RuntimeUiFactory.AddVerticalLayout(section, 0f, new RectOffset(0, 0, 0, 0), TextAnchor.MiddleCenter);
+            RuntimeUiFactory.CreateToggle(
+                section.transform,
+                "Enable Debug Toggle",
+                "Включить debug",
+                selectedDebugEnabled,
+                value => selectedDebugEnabled = value,
+                new Vector2(0f, 60f));
+        }
+
         private void CreateNavigationRow(Transform parent)
         {
             var row = RuntimeUiFactory.CreateUiObject(parent, "Navigation Row");
@@ -398,7 +415,8 @@ namespace LegendsOfWarAndMagic.UI.MapGeneration
                 GrassSaturation = selectedGrassSaturation,
                 GrassHighDetailDistance = selectedGrassHighDetailDistance,
                 GrassDrawDistance = grassDrawDistance,
-                SeedText = seedInput != null ? seedInput.text : string.Empty
+                SeedText = seedInput != null ? seedInput.text : string.Empty,
+                DebugEnabled = selectedDebugEnabled
             };
 
             var resolvedSeed = request.ResolveSeed();

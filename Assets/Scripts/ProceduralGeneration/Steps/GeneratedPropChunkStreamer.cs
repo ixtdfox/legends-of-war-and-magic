@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using LegendsOfWarAndMagic.DebugTools.Core;
 using LegendsOfWarAndMagic.ProceduralGeneration.Config;
 using LegendsOfWarAndMagic.ProceduralGeneration.Core;
 using LegendsOfWarAndMagic.ProceduralGeneration.WorldGeneration.Pipeline;
@@ -43,13 +44,16 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
             int generationSeed,
             IProceduralTerrainSampler terrainSampler)
         {
-            settings = generationSettings;
-            seed = generationSeed;
-            sampler = terrainSampler;
-            chunkSize = Mathf.Max(32f, settings != null ? settings.TerrainChunkSize : 500f);
-            chunkCountX = settings != null ? Mathf.CeilToInt(settings.WorldWidth / chunkSize) : 0;
-            chunkCountZ = settings != null ? Mathf.CeilToInt(settings.WorldLength / chunkSize) : 0;
-            initialized = settings != null && sampler != null && chunkCountX > 0 && chunkCountZ > 0;
+            using (DebugSessionManager.Profiler.Scope("PropChunkStreamer.Configure", new { generationSeed }))
+            {
+                settings = generationSettings;
+                seed = generationSeed;
+                sampler = terrainSampler;
+                chunkSize = Mathf.Max(32f, settings != null ? settings.TerrainChunkSize : 500f);
+                chunkCountX = settings != null ? Mathf.CeilToInt(settings.WorldWidth / chunkSize) : 0;
+                chunkCountZ = settings != null ? Mathf.CeilToInt(settings.WorldLength / chunkSize) : 0;
+                initialized = settings != null && sampler != null && chunkCountX > 0 && chunkCountZ > 0;
+            }
 
             if (!initialized)
             {
@@ -108,78 +112,93 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
 
         private void Update()
         {
-            if (!initialized || settings == null)
+            using (DebugSessionManager.Profiler.Scope("PropChunkStreamer.Update", new
             {
-                return;
-            }
-
-            if (trackingTarget == null)
+                loaded = loadedChunks.Count,
+                pending = loadQueue.Count,
+                buildRoutineRunning
+            }))
             {
-                trackingTarget = ResolveTrackingTarget();
-            }
+                if (!initialized || settings == null)
+                {
+                    return;
+                }
 
-            if (trackingTarget == null)
-            {
-                return;
-            }
+                if (trackingTarget == null)
+                {
+                    trackingTarget = ResolveTrackingTarget();
+                }
 
-            var position = trackingTarget.position;
-            RebuildLoadQueue(ResolveCenterChunk(position), ClampLoadRadius(settings.TerrainChunkLoadRadius, false), false);
-            UnloadOutside(position, ClampLoadRadius(settings.TerrainChunkLoadRadius, false) + settings.TerrainChunkUnloadBuffer);
+                if (trackingTarget == null)
+                {
+                    return;
+                }
 
-            if (!buildRoutineRunning && loadQueue.Count > 0)
-            {
-                StartCoroutine(ProcessQueuedChunksRoutine());
+                var position = trackingTarget.position;
+                RebuildLoadQueue(ResolveCenterChunk(position), ClampLoadRadius(settings.TerrainChunkLoadRadius, false), false);
+                UnloadOutside(position, ClampLoadRadius(settings.TerrainChunkLoadRadius, false) + settings.TerrainChunkUnloadBuffer);
+
+                if (!buildRoutineRunning && loadQueue.Count > 0)
+                {
+                    StartCoroutine(ProcessQueuedChunksRoutine());
+                }
             }
         }
 
         private IEnumerator ProcessQueuedChunksRoutine()
         {
-            buildRoutineRunning = true;
-            var maxBuilds = Mathf.Max(1, settings != null ? settings.TerrainChunkMaxBuildsPerFrame : 1);
-            for (var i = 0; i < maxBuilds && TryDequeueNext(out var coord); i++)
+            using (DebugSessionManager.Profiler.Scope("PropChunkStreamer.ProcessQueuedChunks", new { pending = loadQueue.Count }))
             {
-                yield return CreateChunkRoutine(coord);
-            }
+                buildRoutineRunning = true;
+                var maxBuilds = Mathf.Max(1, settings != null ? settings.TerrainChunkMaxBuildsPerFrame : 1);
+                for (var i = 0; i < maxBuilds && TryDequeueNext(out var coord); i++)
+                {
+                    yield return CreateChunkRoutine(coord);
+                }
 
-            buildRoutineRunning = false;
+                buildRoutineRunning = false;
+            }
         }
 
         private IEnumerator CreateChunkRoutine(Vector2Int coord)
         {
-            if (!IsValidChunkCoord(coord) || loadedChunks.ContainsKey(coord))
+            using (DebugSessionManager.Profiler.Scope("PropChunkStreamer.CreateChunk", new { coord }))
             {
-                yield break;
+                if (!IsValidChunkCoord(coord) || loadedChunks.ContainsKey(coord))
+                {
+                    yield break;
+                }
+
+                var bounds = ResolveChunkBounds(coord);
+                if (bounds.size.x <= 0f || bounds.size.z <= 0f)
+                {
+                    yield break;
+                }
+
+                var root = new GameObject($"PropChunk_{coord.x:D2}_{coord.y:D2}");
+                root.transform.SetParent(transform, false);
+
+                var chunkSeed = ResolveChunkSeed(coord);
+                var chunkContext = new GenerationContext(settings, chunkSeed, root.transform)
+                {
+                    TerrainSampler = sampler,
+                    HasPropExclusion = hasPropExclusion,
+                    PropExclusionCenter = propExclusionCenter,
+                    PropExclusionRadius = propExclusionRadius,
+                    WorldLayers = worldLayers,
+                    WorldMasks = worldLayers?.Masks
+                };
+
+                yield return PropPlacementStep.GenerateIntoRootRoutine(
+                    chunkContext,
+                    root.transform,
+                    bounds,
+                    chunkSeed,
+                    null);
+
+                loadedChunks[coord] = new PropChunkRecord(coord, root);
+                DebugSessionManager.Current?.Counters.Add("props.chunksBuilt", 1);
             }
-
-            var bounds = ResolveChunkBounds(coord);
-            if (bounds.size.x <= 0f || bounds.size.z <= 0f)
-            {
-                yield break;
-            }
-
-            var root = new GameObject($"PropChunk_{coord.x:D2}_{coord.y:D2}");
-            root.transform.SetParent(transform, false);
-
-            var chunkSeed = ResolveChunkSeed(coord);
-            var chunkContext = new GenerationContext(settings, chunkSeed, root.transform)
-            {
-                TerrainSampler = sampler,
-                HasPropExclusion = hasPropExclusion,
-                PropExclusionCenter = propExclusionCenter,
-                PropExclusionRadius = propExclusionRadius,
-                WorldLayers = worldLayers,
-                WorldMasks = worldLayers?.Masks
-            };
-
-            yield return PropPlacementStep.GenerateIntoRootRoutine(
-                chunkContext,
-                root.transform,
-                bounds,
-                chunkSeed,
-                null);
-
-            loadedChunks[coord] = new PropChunkRecord(coord, root);
         }
 
         private bool TryDequeueNext(out Vector2Int coord)
@@ -241,37 +260,46 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
 
         private void UnloadOutside(Vector3 worldPosition, int radius)
         {
-            if (loadedChunks.Count == 0)
+            using (DebugSessionManager.Profiler.Scope("PropChunkStreamer.UnloadOutside", new
             {
-                return;
-            }
-
-            var center = ClampChunkCoord(WorldToChunkCoord(worldPosition.x, worldPosition.z));
-            var safeRadius = Mathf.Max(0, radius);
-            var toUnload = new List<Vector2Int>();
-            foreach (var pair in loadedChunks)
+                loaded = loadedChunks.Count,
+                radius
+            }))
             {
-                var coord = pair.Key;
-                if (Mathf.Abs(coord.x - center.x) > safeRadius || Mathf.Abs(coord.y - center.y) > safeRadius)
+                if (loadedChunks.Count == 0)
                 {
-                    toUnload.Add(coord);
-                }
-            }
-
-            toUnload.Sort((left, right) =>
-                ChunkDistanceSqr(right, center).CompareTo(ChunkDistanceSqr(left, center)));
-
-            var unloadCount = Mathf.Min(toUnload.Count, Mathf.Max(1, settings.TerrainChunkMaxUnloadsPerFrame));
-            for (var i = 0; i < unloadCount; i++)
-            {
-                var coord = toUnload[i];
-                if (!loadedChunks.TryGetValue(coord, out var record))
-                {
-                    continue;
+                    return;
                 }
 
-                SafeDestroy(record.Root);
-                loadedChunks.Remove(coord);
+                var center = ClampChunkCoord(WorldToChunkCoord(worldPosition.x, worldPosition.z));
+                var safeRadius = Mathf.Max(0, radius);
+                var toUnload = new List<Vector2Int>();
+                foreach (var pair in loadedChunks)
+                {
+                    var coord = pair.Key;
+                    if (Mathf.Abs(coord.x - center.x) > safeRadius || Mathf.Abs(coord.y - center.y) > safeRadius)
+                    {
+                        toUnload.Add(coord);
+                    }
+                }
+
+                toUnload.Sort((left, right) =>
+                    ChunkDistanceSqr(right, center).CompareTo(ChunkDistanceSqr(left, center)));
+
+                var unloadCount = Mathf.Min(toUnload.Count, Mathf.Max(1, settings.TerrainChunkMaxUnloadsPerFrame));
+                for (var i = 0; i < unloadCount; i++)
+                {
+                    var coord = toUnload[i];
+                    if (!loadedChunks.TryGetValue(coord, out var record))
+                    {
+                        continue;
+                    }
+
+                    SafeDestroy(record.Root);
+                    loadedChunks.Remove(coord);
+                }
+
+                DebugSessionManager.Current?.Counters.Add("props.chunksUnloaded", unloadCount);
             }
         }
 

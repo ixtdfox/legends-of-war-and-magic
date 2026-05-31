@@ -1,4 +1,5 @@
 using UnityEngine;
+using LegendsOfWarAndMagic.DebugTools.Core;
 
 namespace LegendsOfWarAndMagic.Game.Camera
 {
@@ -22,15 +23,18 @@ namespace LegendsOfWarAndMagic.Game.Camera
 
         private void LateUpdate()
         {
-            if (target == null)
+            using (DebugSessionManager.Profiler.Scope("FollowCamera.LateUpdate"))
             {
-                return;
-            }
+                if (target == null)
+                {
+                    return;
+                }
 
-            var desiredPosition = target.position + offset;
-            var t = 1f - Mathf.Exp(-followSharpness * Time.deltaTime);
-            transform.position = Vector3.Lerp(transform.position, desiredPosition, t);
-            LookAtTarget();
+                var desiredPosition = target.position + offset;
+                var t = 1f - Mathf.Exp(-followSharpness * Time.deltaTime);
+                transform.position = Vector3.Lerp(transform.position, desiredPosition, t);
+                LookAtTarget();
+            }
         }
 
         private void LookAtTarget()

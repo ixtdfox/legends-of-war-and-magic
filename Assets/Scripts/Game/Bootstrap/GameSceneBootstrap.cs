@@ -1,4 +1,6 @@
 using System.Collections;
+using LegendsOfWarAndMagic.DebugTools.Core;
+using LegendsOfWarAndMagic.DebugTools.UnityIntegration;
 using LegendsOfWarAndMagic.Diagnostics;
 using LegendsOfWarAndMagic.Game.World.Application;
 using LegendsOfWarAndMagic.Game.World.Domain;
@@ -54,9 +56,30 @@ namespace LegendsOfWarAndMagic.Game.Bootstrap
             var location = GeneratedWorldSession.CurrentLocation;
             RuntimeLoadingOverlay.Show($"Загружаем «{location.Name.Value}»...", 0.08f);
             yield return null;
+            if (DebugSessionManager.IsEnabled)
+            {
+                RuntimeLoadingOverlay.SetProgress($"Debug output: {DebugSessionManager.Current.RootDirectory}", 0.10f);
+                yield return null;
+                DebugSessionManager.BeginGeneration("GeneratedWorldLocation.Generation", new
+                {
+                    world = world.Name.Value,
+                    worldId = world.Id.Value,
+                    location = location.Name.Value,
+                    locationId = location.Id.Value,
+                    location.TerrainSeed
+                });
+            }
 
             RuntimeLoadingOverlay.SetProgress("Готовим настройки локации...", 0.18f);
-            var settings = LocationTerrainSettingsFactory.Create(location);
+            ProceduralLocationSettings settings;
+            using (DebugSessionManager.Profiler.Scope("LocationTerrainSettingsFactory.Create", new
+            {
+                location = location.Name.Value,
+                locationId = location.Id.Value
+            }))
+            {
+                settings = LocationTerrainSettingsFactory.Create(location);
+            }
             yield return null;
 
             RuntimeLoadingOverlay.SetProgress("Начинаем генерацию локации...", 0.28f);
@@ -64,10 +87,13 @@ namespace LegendsOfWarAndMagic.Game.Bootstrap
 
             var generator = EnsureGenerator();
             generator.GenerateOnStart = false;
-            yield return generator.GenerateFromSettingsRoutine(
-                settings,
-                location.TerrainSeed,
-                (message, progress) => RuntimeLoadingOverlay.SetProgress(message, Mathf.Lerp(0.30f, 0.72f, progress)));
+            using (DebugSessionManager.Profiler.Scope("ProceduralLocationGenerator.GenerateFromSettingsRoutine", DebugGenerationInstrumentation.BuildLocationSettingsSnapshot(settings, location.TerrainSeed)))
+            {
+                yield return generator.GenerateFromSettingsRoutine(
+                    settings,
+                    location.TerrainSeed,
+                    (message, progress) => RuntimeLoadingOverlay.SetProgress(message, Mathf.Lerp(0.30f, 0.72f, progress)));
+            }
 
             RuntimeLoadingOverlay.SetProgress("Ищем точку входа...", 0.74f);
             yield return null;
@@ -76,7 +102,10 @@ namespace LegendsOfWarAndMagic.Game.Bootstrap
             var spawnPoint = isInitialLocationEntry
                 ? FindInitialSettlementSpawnPoint(generator, settings)
                 : FindEntrySpawnPoint(generator.GeneratedTerrainSampler, settings, GeneratedWorldSession.EntryDirection);
-            yield return PreloadSpawnChunks(generator, settings, spawnPoint, 0.76f, 0.91f);
+            using (DebugSessionManager.Profiler.Scope("GameSceneBootstrap.PreloadSpawnChunks", new { spawnPoint }))
+            {
+                yield return PreloadSpawnChunks(generator, settings, spawnPoint, 0.76f, 0.91f);
+            }
             spawnPoint = SnapSpawnPointToGeneratedTerrain(generator, spawnPoint);
             RuntimeLoadingOverlay.SetProgress("Расставляем игрока и переходы...", 0.93f);
             yield return null;
@@ -90,6 +119,8 @@ namespace LegendsOfWarAndMagic.Game.Bootstrap
             CreateGatewayTriggers(location, settings);
             RuntimeGeometryDebugPanel.Ensure(camera);
             RuntimeGraphicsSettingsPanel.Ensure(camera);
+            DebugGenerationInstrumentation.RecordGenerationCounters(generator);
+            DebugSessionManager.EndGeneration(DebugGenerationInstrumentation.BuildGeneratorSummary(generator));
             RuntimeLoadingOverlay.SetProgress("Готово", 1f);
             yield return null;
             RuntimeLoadingOverlay.Hide();
@@ -101,18 +132,48 @@ namespace LegendsOfWarAndMagic.Game.Bootstrap
         {
             var request = MapGenerationSession.GetRequestOrDefault();
             var mappedSettings = MapGenerationPresetMapper.Build(request);
+            if (request.DebugEnabled)
+            {
+                var session = DebugSessionManager.StartSession(new DebugSessionConfig
+                {
+                    Enabled = true,
+                    Source = "MapGeneration.LegacySingleLocation",
+                    Label = "Legacy generated location session",
+                    Seed = mappedSettings.Seed,
+                    Summary = mappedSettings.Summary,
+                    Settings = DebugGenerationInstrumentation.BuildMapRequestSnapshot(request, mappedSettings.Seed)
+                });
+                DebugSessionManager.BeginGeneration("LegacyLocation.Generation", new
+                {
+                    request = DebugGenerationInstrumentation.BuildMapRequestSnapshot(request, mappedSettings.Seed),
+                    settings = DebugGenerationInstrumentation.BuildLocationSettingsSnapshot(mappedSettings.Settings, mappedSettings.Seed)
+                });
+                RuntimeLoadingOverlay.Show($"Debug output: {session.RootDirectory}", 0.05f);
+                yield return null;
+            }
+            else
+            {
+                DebugSessionManager.EndSession();
+            }
+
             var generator = EnsureGenerator();
             generator.GenerateOnStart = false;
             RuntimeLoadingOverlay.Show("Начинаем генерацию локации...", 0.08f);
             yield return null;
 
-            yield return generator.GenerateFromSettingsRoutine(
-                mappedSettings.Settings,
-                mappedSettings.Seed,
-                (message, progress) => RuntimeLoadingOverlay.SetProgress(message, Mathf.Lerp(0.12f, 0.72f, progress)));
+            using (DebugSessionManager.Profiler.Scope("ProceduralLocationGenerator.GenerateFromSettingsRoutine", DebugGenerationInstrumentation.BuildLocationSettingsSnapshot(mappedSettings.Settings, mappedSettings.Seed)))
+            {
+                yield return generator.GenerateFromSettingsRoutine(
+                    mappedSettings.Settings,
+                    mappedSettings.Seed,
+                    (message, progress) => RuntimeLoadingOverlay.SetProgress(message, Mathf.Lerp(0.12f, 0.72f, progress)));
+            }
 
             var spawnPoint = FindInitialSettlementSpawnPoint(generator, mappedSettings.Settings);
-            yield return PreloadSpawnChunks(generator, mappedSettings.Settings, spawnPoint, 0.74f, 0.91f);
+            using (DebugSessionManager.Profiler.Scope("GameSceneBootstrap.PreloadSpawnChunks", new { spawnPoint }))
+            {
+                yield return PreloadSpawnChunks(generator, mappedSettings.Settings, spawnPoint, 0.74f, 0.91f);
+            }
             spawnPoint = SnapSpawnPointToGeneratedTerrain(generator, spawnPoint);
             RuntimeLoadingOverlay.SetProgress("Расставляем игрока...", 0.93f);
             yield return null;
@@ -123,6 +184,8 @@ namespace LegendsOfWarAndMagic.Game.Bootstrap
             RuntimeFantasyGameUi.Ensure();
             RuntimeGeometryDebugPanel.Ensure(camera);
             RuntimeGraphicsSettingsPanel.Ensure(camera);
+            DebugGenerationInstrumentation.RecordGenerationCounters(generator);
+            DebugSessionManager.EndGeneration(DebugGenerationInstrumentation.BuildGeneratorSummary(generator));
 
             Debug.Log($"GameScene ready. Request={mappedSettings.Summary}. Spawn={spawnPoint}. {generator.LastGenerationSummary}");
             RuntimeLoadingOverlay.SetProgress("Готово", 1f);

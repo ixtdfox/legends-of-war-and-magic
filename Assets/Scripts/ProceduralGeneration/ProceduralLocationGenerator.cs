@@ -2,6 +2,8 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Text;
+using LegendsOfWarAndMagic.DebugTools.Core;
+using LegendsOfWarAndMagic.DebugTools.UnityIntegration;
 using LegendsOfWarAndMagic.ProceduralGeneration.Config;
 using LegendsOfWarAndMagic.ProceduralGeneration.Core;
 using LegendsOfWarAndMagic.ProceduralGeneration.Pipeline;
@@ -154,7 +156,11 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration
             UnityEngine.Random.InitState(seed);
 
             var context = new GenerationContext(activeSettings, seed, generatedContentRoot);
-            BuildPipeline().Run(context);
+            using (DebugSessionManager.Profiler.Scope("ProceduralLocationGenerator.BuildPipeline.Run", DebugGenerationInstrumentation.BuildLocationSettingsSnapshot(activeSettings, seed)))
+            {
+                BuildPipeline().Run(context);
+            }
+
             FinalizeGeneration(context);
 
             if (verboseDebugLogging)
@@ -175,43 +181,46 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration
             var context = new GenerationContext(activeSettings, seed, generatedContentRoot);
 
             progress?.Invoke("Очищаем предыдущую локацию...", 0.02f);
-            new ClearGeneratedContentStep().Execute(context);
+            ExecuteStepWithProfiling(new ClearGeneratedContentStep(), context);
             yield return null;
 
             progress?.Invoke("Создаём карту высот и первый чанк...", 0.12f);
-            new TerrainGenerationStep().Execute(context);
+            ExecuteStepWithProfiling(new TerrainGenerationStep(), context);
             yield return null;
 
             progress?.Invoke("Планируем поселения, дороги и места интереса...", 0.20f);
-            new WorldFeatureGenerationStep().Execute(context);
+            ExecuteStepWithProfiling(new WorldFeatureGenerationStep(), context);
             yield return null;
 
             progress?.Invoke("Готовим детали поверхности...", 0.24f);
-            new TerrainDetailGenerationStep().Execute(context);
+            ExecuteStepWithProfiling(new TerrainDetailGenerationStep(), context);
             yield return null;
 
             progress?.Invoke("Готовим траву...", 0.30f);
-            new GpuGrassGenerationStep().Execute(context);
+            ExecuteStepWithProfiling(new GpuGrassGenerationStep(), context);
             yield return null;
 
             progress?.Invoke("Добавляем воду...", 0.34f);
-            new WaterGenerationStep().Execute(context);
+            ExecuteStepWithProfiling(new WaterGenerationStep(), context);
             yield return null;
 
             var propStep = new PropPlacementStep();
-            var propRoutine = propStep.ExecuteRoutine(
-                context,
-                (message, propProgress) =>
-                {
-                    progress?.Invoke(message, Mathf.Lerp(0.36f, 0.92f, Mathf.Clamp01(propProgress)));
-                });
-            while (propRoutine.MoveNext())
+            using (DebugSessionManager.Profiler.Scope("GenerationStep.PropPlacementStep", new { seed = context.Seed }))
             {
-                yield return null;
+                var propRoutine = propStep.ExecuteRoutine(
+                    context,
+                    (message, propProgress) =>
+                    {
+                        progress?.Invoke(message, Mathf.Lerp(0.36f, 0.92f, Mathf.Clamp01(propProgress)));
+                    });
+                while (propRoutine.MoveNext())
+                {
+                    yield return null;
+                }
             }
 
             progress?.Invoke("Ставим границы локации...", 0.96f);
-            new CreateBoundaryMarkersStep().Execute(context);
+            ExecuteStepWithProfiling(new CreateBoundaryMarkersStep(), context);
             yield return null;
 
             FinalizeGeneration(context);
@@ -232,6 +241,19 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration
             PropChunkStreamer = context.PropChunkStreamer as GeneratedPropChunkStreamer;
             GeneratedWorldLayers = context.WorldLayers;
             LastGenerationSummary = BuildGenerationSummary(context);
+            DebugGenerationInstrumentation.RecordGenerationCounters(this);
+        }
+
+        private static void ExecuteStepWithProfiling(IGenerationStep step, GenerationContext context)
+        {
+            using (DebugSessionManager.Profiler.Scope($"GenerationStep.{step.GetType().Name}", new
+            {
+                seed = context?.Seed,
+                settings = context?.Settings != null ? context.Settings.name : string.Empty
+            }))
+            {
+                step.Execute(context);
+            }
         }
 
         private string BuildGenerationSummary(GenerationContext context)

@@ -1,5 +1,6 @@
 using UnityEngine;
 using UnityEngine.InputSystem;
+using LegendsOfWarAndMagic.DebugTools.Core;
 using LegendsOfWarAndMagic.UI.Shared;
 
 namespace LegendsOfWarAndMagic.Game.Player
@@ -48,36 +49,39 @@ namespace LegendsOfWarAndMagic.Game.Player
 
         private void Update()
         {
-            if (RuntimeInputBlocker.IsBlocked)
+            using (DebugSessionManager.Profiler.Scope("PlayerController.Update"))
             {
-                return;
+                if (RuntimeInputBlocker.IsBlocked)
+                {
+                    return;
+                }
+
+                HandleLook();
+
+                var moveInput = ReadMoveInput();
+                var jumpPressed = ReadJumpPressed();
+                var sprinting = ReadSprintPressed();
+
+                var moveDirection = BuildPlayerRelativeDirection(moveInput);
+                var speed = walkSpeed * (sprinting ? sprintMultiplier : 1f);
+                var horizontalVelocity = moveDirection * speed;
+
+                if (controller.isGrounded && verticalVelocity < 0f)
+                {
+                    verticalVelocity = -2f;
+                }
+
+                if (jumpPressed && controller.isGrounded)
+                {
+                    verticalVelocity = Mathf.Sqrt(jumpHeight * -2f * gravity);
+                }
+
+                verticalVelocity += gravity * Time.deltaTime;
+
+                var motion = horizontalVelocity;
+                motion.y = verticalVelocity;
+                controller.Move(motion * Time.deltaTime);
             }
-
-            HandleLook();
-
-            var moveInput = ReadMoveInput();
-            var jumpPressed = ReadJumpPressed();
-            var sprinting = ReadSprintPressed();
-
-            var moveDirection = BuildPlayerRelativeDirection(moveInput);
-            var speed = walkSpeed * (sprinting ? sprintMultiplier : 1f);
-            var horizontalVelocity = moveDirection * speed;
-
-            if (controller.isGrounded && verticalVelocity < 0f)
-            {
-                verticalVelocity = -2f;
-            }
-
-            if (jumpPressed && controller.isGrounded)
-            {
-                verticalVelocity = Mathf.Sqrt(jumpHeight * -2f * gravity);
-            }
-
-            verticalVelocity += gravity * Time.deltaTime;
-
-            var motion = horizontalVelocity;
-            motion.y = verticalVelocity;
-            controller.Move(motion * Time.deltaTime);
         }
 
         public void SetViewCamera(Transform cameraTransform)

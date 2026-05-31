@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using LegendsOfWarAndMagic.DebugTools.Core;
 using LegendsOfWarAndMagic.ProceduralGeneration.Core;
 
 namespace LegendsOfWarAndMagic.ProceduralGeneration.Pipeline
@@ -19,8 +20,23 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Pipeline
         {
             for (var i = 0; i < _steps.Count; i++)
             {
-                _steps[i].Execute(context);
+                var step = _steps[i];
+                using (DebugSessionManager.Profiler.Scope($"GenerationStep.{ResolveStepName(step)}", new
+                {
+                    index = i,
+                    type = step.GetType().FullName,
+                    seed = context?.Seed,
+                    settings = context?.Settings != null ? context.Settings.name : string.Empty
+                }))
+                {
+                    step.Execute(context);
+                }
             }
+        }
+
+        private static string ResolveStepName(IGenerationStep step)
+        {
+            return step is CompositeGenerationStep composite ? composite.Name : step.GetType().Name;
         }
     }
 }

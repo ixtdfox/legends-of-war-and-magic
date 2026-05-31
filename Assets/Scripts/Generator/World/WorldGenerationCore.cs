@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using LegendsOfWarAndMagic.DebugTools.Core;
 using LegendsOfWarAndMagic.Game.World.Domain;
 using LegendsOfWarAndMagic.Generator.Common;
 using LegendsOfWarAndMagic.Generator.Common.Noise;
@@ -29,6 +30,7 @@ namespace LegendsOfWarAndMagic.Generator.World
         public int MapSampleWidth { get; set; } = 128;
         public int MapSampleHeight { get; set; } = 96;
         public string GeneratorVersion { get; set; } = "top-down-worldgen-mvp-1";
+        public bool DebugEnabled { get; set; }
 
         public int ResolveSeed()
         {
@@ -37,7 +39,7 @@ namespace LegendsOfWarAndMagic.Generator.World
 
         public string BuildSnapshot()
         {
-            return $"Seed={Seed};Regions={MinRegions}-{MaxRegions};Locations={PlayableLocationCount};Shape={ForcedShape};Samples={MapSampleWidth}x{MapSampleHeight};Version={GeneratorVersion}";
+            return $"Seed={Seed};Regions={MinRegions}-{MaxRegions};Locations={PlayableLocationCount};Shape={ForcedShape};Samples={MapSampleWidth}x{MapSampleHeight};Version={GeneratorVersion};Debug={DebugEnabled}";
         }
 
         private static int Clamp(int value, int min, int max)
@@ -76,7 +78,16 @@ namespace LegendsOfWarAndMagic.Generator.World
             foreach (var step in steps)
             {
                 progress?.Invoke(step.Name);
-                step.Execute(context);
+                using (DebugSessionManager.Profiler.Scope($"TopDownWorldGeneration.{step.GetType().Name}", new
+                {
+                    step = step.Name,
+                    seed = context?.Seed,
+                    width = context?.Width,
+                    height = context?.Height
+                }))
+                {
+                    step.Execute(context);
+                }
             }
         }
     }

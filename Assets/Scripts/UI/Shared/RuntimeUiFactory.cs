@@ -340,6 +340,44 @@ namespace LegendsOfWarAndMagic.UI.Shared
             return slider;
         }
 
+        public static Toggle CreateToggle(
+            Transform parent,
+            string name,
+            string label,
+            bool value,
+            UnityAction<bool> onValueChanged,
+            Vector2 preferredSize)
+        {
+            var row = CreateUiObject(parent, name);
+            AddHorizontalLayout(row, 14f, new RectOffset(24, 24, 8, 8), TextAnchor.MiddleLeft);
+            AddLayoutElement(row, preferredSize.x, preferredSize.y);
+
+            var toggleObject = CreateUiObject(row.transform, "Toggle");
+            AddLayoutElement(toggleObject, 42f, 42f);
+            var background = toggleObject.AddComponent<Image>();
+            background.color = new Color(0.20f, 0.12f, 0.07f, 1f);
+
+            var checkmark = CreateImage(toggleObject.transform, "Checkmark", new Color(0.86f, 0.55f, 0.18f, 1f));
+            var checkRect = checkmark.GetComponent<RectTransform>();
+            checkRect.anchorMin = new Vector2(0.20f, 0.20f);
+            checkRect.anchorMax = new Vector2(0.80f, 0.80f);
+            checkRect.offsetMin = Vector2.zero;
+            checkRect.offsetMax = Vector2.zero;
+
+            var toggle = toggleObject.AddComponent<Toggle>();
+            toggle.targetGraphic = background;
+            toggle.graphic = checkmark;
+            toggle.SetIsOnWithoutNotify(value);
+            if (onValueChanged != null)
+            {
+                toggle.onValueChanged.AddListener(onValueChanged);
+            }
+
+            var labelText = CreateText(row.transform, "Label", label, 26, ParchmentText, TextAnchor.MiddleLeft, FontStyle.Bold);
+            AddLayoutElement(labelText.gameObject, Mathf.Max(0f, preferredSize.x - 86f), preferredSize.y - 6f);
+            return toggle;
+        }
+
         public static VerticalLayoutGroup AddVerticalLayout(GameObject target, float spacing, RectOffset padding, TextAnchor alignment = TextAnchor.UpperCenter)
         {
             var layout = target.AddComponent<VerticalLayoutGroup>();
