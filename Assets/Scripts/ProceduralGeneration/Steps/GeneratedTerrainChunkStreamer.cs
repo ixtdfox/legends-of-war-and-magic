@@ -31,6 +31,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
         private bool hasQueuedCenter;
         private Vector2Int queuedCenter;
         private int queuedRadius;
+        private bool runtimeStreamingEnabled;
         private WorldGenerationLayers worldLayers;
         private IProceduralTerrainSampler settlementAdjustedSampler;
         private RoadTerrainCarvingContext roadCarvingContext;
@@ -75,7 +76,21 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                 return;
             }
 
-            LoadAroundImmediate(Vector3.zero, settings.TerrainChunkInitialLoadRadius);
+            if (!Application.isPlaying)
+            {
+                LoadAroundImmediate(Vector3.zero, settings.TerrainChunkInitialLoadRadius);
+            }
+        }
+
+        public void SetRuntimeStreamingEnabled(bool enabled)
+        {
+            runtimeStreamingEnabled = enabled;
+            if (!enabled)
+            {
+                hasQueuedCenter = false;
+                loadQueue.Clear();
+                queuedLoads.Clear();
+            }
         }
 
         public void ApplyWorldGenerationLayers(WorldGenerationLayers layers)
@@ -153,7 +168,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                 pending = loadQueue.Count
             }))
             {
-                if (!initialized || settings == null)
+                if (!runtimeStreamingEnabled || !initialized || settings == null)
                 {
                     return;
                 }
@@ -375,39 +390,77 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
         {
             using (DebugSessionManager.Profiler.Scope("TerrainChunkStreamer.CreateChunk", new { coord }))
             {
-            var min = WorldBounds.min;
-            var max = WorldBounds.max;
-            var minX = min.x + coord.x * chunkSize;
-            var minZ = min.z + coord.y * chunkSize;
-            var width = Mathf.Min(chunkSize, max.x - minX);
-            var length = Mathf.Min(chunkSize, max.z - minZ);
-            if (width <= 0f || length <= 0f)
-            {
-                return default;
-            }
+                var min = WorldBounds.min;
+                var max = WorldBounds.max;
+                var minX = min.x + coord.x * chunkSize;
+                var minZ = min.z + coord.y * chunkSize;
+                var width = Mathf.Min(chunkSize, max.x - minX);
+                var length = Mathf.Min(chunkSize, max.z - minZ);
+                if (width <= 0f || length <= 0f)
+                {
+                    return default;
+                }
 
-            var terrainData = new TerrainData
-            {
-                heightmapResolution = SanitizeHeightmapResolution(settings.TerrainChunkHeightmapResolution),
-                size = new Vector3(width, settings.TerrainHeight, length)
-            };
-            var heights = sampler.BuildHeightMap(terrainData.heightmapResolution, minX, minZ, width, length);
-            ApplySettlementFlattening(heights, minX, minZ, width, length);
-            TerrainRoadCarver.Apply(heights, minX, minZ, width, length, settings, roadCarvingContext);
-            terrainData.SetHeights(0, 0, heights);
+                var resolution = SanitizeHeightmapResolution(settings.TerrainChunkHeightmapResolution);
+                var terrainData = new TerrainData
+                {
+                    heightmapResolution = resolution,
+                    size = new Vector3(width, settings.TerrainHeight, length)
+                };
+                float[,] heights;
+                using (DebugSessionManager.Profiler.Scope("TerrainChunkStreamer.BuildHeightMap", new
+                {
+                    coord,
+                    resolution,
+                    width,
+                    length
+                }))
+                {
+                    heights = sampler.BuildHeightMap(resolution, minX, minZ, width, length);
+                }
 
-            var terrainObject = Terrain.CreateTerrainGameObject(terrainData);
-            terrainObject.name = $"TerrainChunk_{coord.x:D2}_{coord.y:D2}";
-            terrainObject.transform.SetParent(transform, false);
-            terrainObject.transform.position = new Vector3(minX, 0f, minZ);
+                using (DebugSessionManager.Profiler.Scope("TerrainChunkStreamer.ApplySettlementFlattening", new { coord }))
+                {
+                    ApplySettlementFlattening(heights, minX, minZ, width, length);
+                }
 
-            var terrain = terrainObject.GetComponent<Terrain>();
-            ConfigureTerrainRenderCost(terrain, ResolvePixelError(2));
-            GeneratedTerrainVisuals.Apply(terrain, settings, seed, worldLayers?.Masks, worldLayers?.RoadNetwork);
-            TerrainDetailGenerationStep.ApplyToTerrain(settings, terrain, ResolveChunkSeed(coord), null, worldLayers?.Masks);
-            AddChunkGrassRenderer(terrain, coord);
+                using (DebugSessionManager.Profiler.Scope("TerrainChunkStreamer.ApplyRoadCarving", new { coord }))
+                {
+                    TerrainRoadCarver.Apply(heights, minX, minZ, width, length, settings, roadCarvingContext);
+                }
 
-            return new TerrainChunkRecord(coord, terrainObject, terrain);
+                using (DebugSessionManager.Profiler.Scope("TerrainChunkStreamer.SetHeights", new { coord, resolution }))
+                {
+                    terrainData.SetHeights(0, 0, heights);
+                }
+
+                GameObject terrainObject;
+                using (DebugSessionManager.Profiler.Scope("TerrainChunkStreamer.CreateTerrainGameObject", new { coord }))
+                {
+                    terrainObject = Terrain.CreateTerrainGameObject(terrainData);
+                    terrainObject.name = $"TerrainChunk_{coord.x:D2}_{coord.y:D2}";
+                    terrainObject.transform.SetParent(transform, false);
+                    terrainObject.transform.position = new Vector3(minX, 0f, minZ);
+                }
+
+                var terrain = terrainObject.GetComponent<Terrain>();
+                ConfigureTerrainRenderCost(terrain, ResolvePixelError(2));
+                using (DebugSessionManager.Profiler.Scope("TerrainChunkStreamer.ApplyVisuals", new { coord }))
+                {
+                    GeneratedTerrainVisuals.Apply(terrain, settings, seed, worldLayers?.Masks, worldLayers?.RoadNetwork);
+                }
+
+                using (DebugSessionManager.Profiler.Scope("TerrainChunkStreamer.ApplyDetails", new { coord }))
+                {
+                    TerrainDetailGenerationStep.ApplyToTerrain(settings, terrain, ResolveChunkSeed(coord), null, worldLayers?.Masks);
+                }
+
+                using (DebugSessionManager.Profiler.Scope("TerrainChunkStreamer.AttachGrassRenderer", new { coord }))
+                {
+                    AddChunkGrassRenderer(terrain, coord);
+                }
+
+                return new TerrainChunkRecord(coord, terrainObject, terrain);
             }
         }
 
@@ -421,7 +474,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
             var grassObject = new GameObject($"GeneratedGpuGrass_{coord.x:D2}_{coord.y:D2}");
             grassObject.transform.SetParent(terrain.transform, false);
             var renderer = grassObject.AddComponent<GeneratedGpuGrassRenderer>();
-            renderer.Initialize(terrain, ResolveChunkSeed(coord), settings.GpuGrassSettings, settings.WaterLevel, worldLayers?.Masks);
+            renderer.ConfigureLazy(terrain, ResolveChunkSeed(coord), settings.GpuGrassSettings, settings.WaterLevel, worldLayers?.Masks);
         }
 
         private void ApplyWorldLayerEffects(Terrain terrain, int chunkSeed)
@@ -438,7 +491,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
             var grassRenderers = terrain.GetComponentsInChildren<GeneratedGpuGrassRenderer>(true);
             for (var i = 0; i < grassRenderers.Length; i++)
             {
-                grassRenderers[i].Initialize(terrain, chunkSeed, settings.GpuGrassSettings, settings.WaterLevel, worldLayers.Masks);
+                grassRenderers[i].ConfigureLazy(terrain, chunkSeed, settings.GpuGrassSettings, settings.WaterLevel, worldLayers.Masks);
             }
         }
 

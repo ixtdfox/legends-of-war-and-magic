@@ -18,6 +18,11 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.WorldGeneration.Roads.Genera
             new(1, 2), new(1, -2), new(-1, 2), new(-1, -2)
         };
 
+        private CellSampleCache sharedSampleCache;
+        private IProceduralTerrainSampler sharedSampler;
+        private Bounds sharedBounds;
+        private int sharedResolution;
+
         public RoadPathResult FindPath(
             Vector2 start,
             Vector2 end,
@@ -33,16 +38,16 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.WorldGeneration.Roads.Genera
             var endCell = WorldToCell(end, bounds, resolution);
             var cellCount = resolution * resolution;
             var records = new NodeRecord[cellCount];
-            var open = new List<int> { ToIndex(startCell, resolution) };
+            var open = new MinHeap(cellCount);
             var closed = new bool[cellCount];
-            records[open[0]] = new NodeRecord(0f, Heuristic(startCell, endCell), -1, true);
+            var sampleCache = ResolveSampleCache(bounds, resolution, sampler);
+            var startIndex = ToIndex(startCell, resolution);
+            records[startIndex] = new NodeRecord(0f, Heuristic(startCell, endCell, bounds, resolution), -1, true);
+            open.Enqueue(startIndex, records[startIndex].EstimatedTotalCost);
 
             while (open.Count > 0)
             {
-                var currentOpenIndex = ResolveLowestCostIndex(open, records);
-                var currentIndex = open[currentOpenIndex];
-                open.RemoveAt(currentOpenIndex);
-
+                var currentIndex = open.Dequeue();
                 if (closed[currentIndex])
                 {
                     continue;
@@ -77,7 +82,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.WorldGeneration.Roads.Genera
                         bounds,
                         resolution,
                         settings,
-                        sampler,
+                        sampleCache,
                         masks,
                         config,
                         roadTypeSettings);
@@ -92,12 +97,29 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.WorldGeneration.Roads.Genera
                         continue;
                     }
 
-                    records[nextIndex] = new NodeRecord(newCost, newCost + Heuristic(nextCell, endCell), currentIndex, true);
-                    open.Add(nextIndex);
+                    records[nextIndex] = new NodeRecord(newCost, newCost + Heuristic(nextCell, endCell, bounds, resolution), currentIndex, true);
+                    open.Enqueue(nextIndex, records[nextIndex].EstimatedTotalCost);
                 }
             }
 
             return BuildFallback(start, end);
+        }
+
+        private CellSampleCache ResolveSampleCache(Bounds bounds, int resolution, IProceduralTerrainSampler sampler)
+        {
+            if (sharedSampleCache == null ||
+                sharedResolution != resolution ||
+                sharedSampler != sampler ||
+                sharedBounds.center != bounds.center ||
+                sharedBounds.size != bounds.size)
+            {
+                sharedBounds = bounds;
+                sharedResolution = resolution;
+                sharedSampler = sampler;
+                sharedSampleCache = new CellSampleCache(bounds, resolution, sampler);
+            }
+
+            return sharedSampleCache;
         }
 
         public float EvaluateStepCostForTests(
@@ -123,24 +145,25 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.WorldGeneration.Roads.Genera
             Bounds bounds,
             int resolution,
             ProceduralLocationSettings settings,
-            IProceduralTerrainSampler sampler,
+            CellSampleCache sampleCache,
             WorldGenerationMaskSet masks,
             RoadGenerationConfig config,
             RoadTypeSettings roadTypeSettings)
         {
-            var fromWorld = CellToWorld(from, bounds, resolution);
-            var toWorld = CellToWorld(to, bounds, resolution);
-            var distance = Vector2.Distance(fromWorld, toWorld);
-            if (!sampler.TrySample(fromWorld.x, fromWorld.y, out var fromPoint, out _) ||
-                !sampler.TrySample(toWorld.x, toWorld.y, out var toPoint, out var normal))
+            if (!sampleCache.TryGet(from, out var fromSample) ||
+                !sampleCache.TryGet(to, out var toSample))
             {
                 return float.PositiveInfinity;
             }
 
-            var slope = Vector3.Angle(normal, Vector3.up);
-            var water = settings.WaterEnabled && toPoint.y <= settings.WaterLevel + 0.35f;
-            var steepness = Mathf.Abs(toPoint.y - fromPoint.y) / Mathf.Max(0.01f, distance);
-            var heightChange = Mathf.Abs(toPoint.y - fromPoint.y);
+            var fromWorld = fromSample.World;
+            var toWorld = toSample.World;
+            var distance = Vector2.Distance(fromWorld, toWorld);
+
+            var slope = toSample.SlopeDegrees;
+            var water = settings.WaterEnabled && toSample.Height <= settings.WaterLevel + 0.35f;
+            var steepness = Mathf.Abs(toSample.Height - fromSample.Height) / Mathf.Max(0.01f, distance);
+            var heightChange = Mathf.Abs(toSample.Height - fromSample.Height);
             var cost = distance * roadTypeSettings.TerrainCostMultiplier +
                        Mathf.Pow(steepness * config.SlopePenalty, config.SlopePower) * distance +
                        Mathf.Pow(heightChange / Mathf.Max(1f, distance), 2f) * config.ElevationChangePenalty * distance;
@@ -216,26 +239,13 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.WorldGeneration.Roads.Genera
             return new RoadPathResult(new[] { start, midpoint + normal * offset, end }, delta.magnitude * 10f, false);
         }
 
-        private static int ResolveLowestCostIndex(List<int> open, NodeRecord[] records)
+        private static float Heuristic(Vector2Int a, Vector2Int b, Bounds bounds, int resolution)
         {
-            var bestOpenIndex = 0;
-            var bestCost = records[open[0]].EstimatedTotalCost;
-            for (var i = 1; i < open.Count; i++)
-            {
-                var cost = records[open[i]].EstimatedTotalCost;
-                if (cost < bestCost)
-                {
-                    bestCost = cost;
-                    bestOpenIndex = i;
-                }
-            }
-
-            return bestOpenIndex;
-        }
-
-        private static float Heuristic(Vector2Int a, Vector2Int b)
-        {
-            return Vector2Int.Distance(a, b);
+            var cellSizeX = bounds.size.x / Mathf.Max(1, resolution - 1);
+            var cellSizeZ = bounds.size.z / Mathf.Max(1, resolution - 1);
+            var dx = (a.x - b.x) * cellSizeX;
+            var dz = (a.y - b.y) * cellSizeZ;
+            return Mathf.Sqrt(dx * dx + dz * dz) * 0.12f;
         }
 
         private static Vector2Int WorldToCell(Vector2 point, Bounds bounds, int resolution)
@@ -267,6 +277,149 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.WorldGeneration.Roads.Genera
         private static bool IsInside(Vector2Int cell, int resolution)
         {
             return cell.x >= 0 && cell.y >= 0 && cell.x < resolution && cell.y < resolution;
+        }
+
+        private sealed class CellSampleCache
+        {
+            private readonly Bounds bounds;
+            private readonly int resolution;
+            private readonly IProceduralTerrainSampler sampler;
+            private readonly CellSample[] samples;
+            private readonly bool[] visited;
+
+            public CellSampleCache(Bounds bounds, int resolution, IProceduralTerrainSampler sampler)
+            {
+                this.bounds = bounds;
+                this.resolution = resolution;
+                this.sampler = sampler;
+                var count = Mathf.Max(1, resolution * resolution);
+                samples = new CellSample[count];
+                visited = new bool[count];
+            }
+
+            public bool TryGet(Vector2Int cell, out CellSample sample)
+            {
+                var index = ToIndex(cell, resolution);
+                if (!visited[index])
+                {
+                    visited[index] = true;
+                    var world = CellToWorld(cell, bounds, resolution);
+                    if (sampler != null &&
+                        sampler.TrySample(world.x, world.y, out var point, out var normal))
+                    {
+                        samples[index] = new CellSample(world, point.y, Vector3.Angle(normal, Vector3.up), true);
+                    }
+                    else
+                    {
+                        samples[index] = new CellSample(world, 0f, 90f, false);
+                    }
+                }
+
+                sample = samples[index];
+                return sample.Valid;
+            }
+        }
+
+        private readonly struct CellSample
+        {
+            public CellSample(Vector2 world, float height, float slopeDegrees, bool valid)
+            {
+                World = world;
+                Height = height;
+                SlopeDegrees = slopeDegrees;
+                Valid = valid;
+            }
+
+            public Vector2 World { get; }
+            public float Height { get; }
+            public float SlopeDegrees { get; }
+            public bool Valid { get; }
+        }
+
+        private sealed class MinHeap
+        {
+            private int[] indices;
+            private float[] priorities;
+
+            public MinHeap(int capacity)
+            {
+                var safeCapacity = Mathf.Max(16, capacity);
+                indices = new int[safeCapacity];
+                priorities = new float[safeCapacity];
+            }
+
+            public int Count { get; private set; }
+
+            public void Enqueue(int index, float priority)
+            {
+                if (Count >= indices.Length)
+                {
+                    Array.Resize(ref indices, indices.Length * 2);
+                    Array.Resize(ref priorities, priorities.Length * 2);
+                }
+
+                var cursor = Count++;
+                indices[cursor] = index;
+                priorities[cursor] = priority;
+                SiftUp(cursor);
+            }
+
+            public int Dequeue()
+            {
+                var result = indices[0];
+                Count--;
+                if (Count > 0)
+                {
+                    indices[0] = indices[Count];
+                    priorities[0] = priorities[Count];
+                    SiftDown(0);
+                }
+
+                return result;
+            }
+
+            private void SiftUp(int index)
+            {
+                while (index > 0)
+                {
+                    var parent = (index - 1) / 2;
+                    if (priorities[parent] <= priorities[index])
+                    {
+                        return;
+                    }
+
+                    Swap(index, parent);
+                    index = parent;
+                }
+            }
+
+            private void SiftDown(int index)
+            {
+                while (true)
+                {
+                    var left = index * 2 + 1;
+                    var right = left + 1;
+                    if (left >= Count)
+                    {
+                        return;
+                    }
+
+                    var best = right < Count && priorities[right] < priorities[left] ? right : left;
+                    if (priorities[index] <= priorities[best])
+                    {
+                        return;
+                    }
+
+                    Swap(index, best);
+                    index = best;
+                }
+            }
+
+            private void Swap(int left, int right)
+            {
+                (indices[left], indices[right]) = (indices[right], indices[left]);
+                (priorities[left], priorities[right]) = (priorities[right], priorities[left]);
+            }
         }
 
         private readonly struct NodeRecord

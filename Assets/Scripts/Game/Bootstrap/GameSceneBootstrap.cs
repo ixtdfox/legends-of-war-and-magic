@@ -87,6 +87,7 @@ namespace LegendsOfWarAndMagic.Game.Bootstrap
 
             var generator = EnsureGenerator();
             generator.GenerateOnStart = false;
+            generator.ResumeRuntimeStreamingAfterGeneration = false;
             using (DebugSessionManager.Profiler.Scope("ProceduralLocationGenerator.GenerateFromSettingsRoutine", DebugGenerationInstrumentation.BuildLocationSettingsSnapshot(settings, location.TerrainSeed)))
             {
                 yield return generator.GenerateFromSettingsRoutine(
@@ -119,6 +120,8 @@ namespace LegendsOfWarAndMagic.Game.Bootstrap
             CreateGatewayTriggers(location, settings);
             RuntimeGeometryDebugPanel.Ensure(camera);
             RuntimeGraphicsSettingsPanel.Ensure(camera);
+            generator.SetRuntimeStreamingEnabled(true);
+            generator.ResumeRuntimeStreamingAfterGeneration = true;
             DebugGenerationInstrumentation.RecordGenerationCounters(generator);
             DebugSessionManager.EndGeneration(DebugGenerationInstrumentation.BuildGeneratorSummary(generator));
             RuntimeLoadingOverlay.SetProgress("Готово", 1f);
@@ -158,6 +161,7 @@ namespace LegendsOfWarAndMagic.Game.Bootstrap
 
             var generator = EnsureGenerator();
             generator.GenerateOnStart = false;
+            generator.ResumeRuntimeStreamingAfterGeneration = false;
             RuntimeLoadingOverlay.Show("Начинаем генерацию локации...", 0.08f);
             yield return null;
 
@@ -184,6 +188,8 @@ namespace LegendsOfWarAndMagic.Game.Bootstrap
             RuntimeFantasyGameUi.Ensure();
             RuntimeGeometryDebugPanel.Ensure(camera);
             RuntimeGraphicsSettingsPanel.Ensure(camera);
+            generator.SetRuntimeStreamingEnabled(true);
+            generator.ResumeRuntimeStreamingAfterGeneration = true;
             DebugGenerationInstrumentation.RecordGenerationCounters(generator);
             DebugSessionManager.EndGeneration(DebugGenerationInstrumentation.BuildGeneratorSummary(generator));
 

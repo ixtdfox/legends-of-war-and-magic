@@ -47,6 +47,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration
         public ProceduralLocationSettings CurrentSettings => settings;
         public WorldGenerationLayers GeneratedWorldLayers { get; private set; }
         public string LastGenerationSummary { get; private set; }
+        public bool ResumeRuntimeStreamingAfterGeneration { get; set; } = true;
         public bool GenerateOnStart
         {
             get => generateOnStart;
@@ -242,6 +243,17 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration
             GeneratedWorldLayers = context.WorldLayers;
             LastGenerationSummary = BuildGenerationSummary(context);
             DebugGenerationInstrumentation.RecordGenerationCounters(this);
+
+            if (ResumeRuntimeStreamingAfterGeneration)
+            {
+                SetRuntimeStreamingEnabled(true);
+            }
+        }
+
+        public void SetRuntimeStreamingEnabled(bool enabled)
+        {
+            TerrainChunkStreamer?.SetRuntimeStreamingEnabled(enabled);
+            PropChunkStreamer?.SetRuntimeStreamingEnabled(enabled);
         }
 
         private static void ExecuteStepWithProfiling(IGenerationStep step, GenerationContext context)

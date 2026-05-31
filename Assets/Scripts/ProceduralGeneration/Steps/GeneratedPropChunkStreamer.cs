@@ -31,6 +31,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
         private Vector2Int queuedCenter;
         private int queuedRadius;
         private bool buildRoutineRunning;
+        private bool runtimeStreamingEnabled;
         private bool hasPropExclusion;
         private Vector3 propExclusionCenter;
         private float propExclusionRadius;
@@ -60,7 +61,10 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                 return;
             }
 
-            LoadAroundImmediate(Vector3.zero, settings.TerrainChunkInitialLoadRadius);
+            if (!Application.isPlaying)
+            {
+                LoadAroundImmediate(Vector3.zero, settings.TerrainChunkInitialLoadRadius);
+            }
         }
 
         public void ApplyWorldGenerationLayers(WorldGenerationLayers layers)
@@ -82,6 +86,18 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                 while (routine.MoveNext())
                 {
                 }
+            }
+        }
+
+        public void SetRuntimeStreamingEnabled(bool enabled)
+        {
+            runtimeStreamingEnabled = enabled;
+            if (!enabled)
+            {
+                hasQueuedCenter = false;
+                loadQueue.Clear();
+                queuedLoads.Clear();
+                buildRoutineRunning = false;
             }
         }
 
@@ -119,7 +135,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                 buildRoutineRunning
             }))
             {
-                if (!initialized || settings == null)
+                if (!runtimeStreamingEnabled || !initialized || settings == null)
                 {
                     return;
                 }
