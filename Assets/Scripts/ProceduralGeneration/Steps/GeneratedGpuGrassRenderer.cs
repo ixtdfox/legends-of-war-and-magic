@@ -30,6 +30,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
         private const int MaxRuntimeInitialBuildsPerFrame = 1;
         private const int MaxConcurrentRuntimeBuilds = 1;
         private const int MaxClusterInstanceSchedulesPerFrame = 8;
+        private const int MaxClusterInstanceBuildSlicesPerFrame = 1;
         private const double RuntimeBuildFrameBudgetMilliseconds = 4d;
 
         private static readonly int GrassTintId = Shader.PropertyToID("_GrassTint");
@@ -46,9 +47,12 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
         private static readonly int TopColorId = Shader.PropertyToID("_TopColor");
         private static readonly int AmbientId = Shader.PropertyToID("_Ambient");
         private static readonly int CutoffId = Shader.PropertyToID("_Cutoff");
+        private static readonly Vector4[] GrassTintLookup = new Vector4[256];
         private static int runtimeInitialBuildFrame = -1;
         private static int runtimeInitialBuildCount;
         private static int activeRuntimeBuilds;
+        private static int clusterInstanceBuildSliceFrame = -1;
+        private static int clusterInstanceBuildSliceCount;
 
         [SerializeField] private Terrain targetTerrain;
         [SerializeField] private GpuGrassSettings grassSettings = GpuGrassSettings.CreatePreset(ForestQualityLevel.High);
@@ -98,6 +102,21 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
         private int runtimeBuildVersion;
         private int scheduledClusterInstanceBuildsThisFrame;
         private WorldGenerationMaskSet worldMasks;
+
+        static GeneratedGpuGrassRenderer()
+        {
+            var dry = new Color(0.66f, 0.60f, 0.34f, 1f);
+            var lush = new Color(0.56f, 0.64f, 0.31f, 1f);
+            var shade = new Color(0.40f, 0.52f, 0.21f, 1f);
+            for (var i = 0; i < GrassTintLookup.Length; i++)
+            {
+                var t = i / 255f;
+                var color = t < 0.5f
+                    ? Color.Lerp(dry, shade, t * 2f)
+                    : Color.Lerp(shade, lush, (t - 0.5f) * 2f);
+                GrassTintLookup[i] = new Vector4(color.r, color.g, color.b, 0.18f);
+            }
+        }
 
         public int ChunkCount => clusters.Count;
         public int ClusterCount => clusters.Count;
@@ -590,6 +609,13 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                 return;
             }
 
+            var nearMeshTriangles = CountTriangles(nearGrassMesh);
+            var midMeshTriangles = CountTriangles(midGrassMesh);
+            if (nearMeshTriangles <= 0 && midMeshTriangles <= 0)
+            {
+                return;
+            }
+
             var cameraPosition = camera.transform.position;
             var farDistance = settings.FarVisualDistance + settings.ClusterSize;
             var farSqrDistance = farDistance * farDistance;
@@ -641,7 +667,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
             {
                 if (visibleClusters[i].Ring == GrassRing.Near)
                 {
-                    AddClusterInstances(visibleClusters[i].ClusterIndex, GrassRing.Near, cameraPosition, settings, triangleBudget);
+                    AddClusterInstances(visibleClusters[i].ClusterIndex, GrassRing.Near, cameraPosition, settings, triangleBudget, nearMeshTriangles);
                 }
             }
 
@@ -649,13 +675,13 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
             {
                 if (visibleClusters[i].Ring == GrassRing.Mid)
                 {
-                    AddClusterInstances(visibleClusters[i].ClusterIndex, GrassRing.Mid, cameraPosition, settings, triangleBudget);
+                    AddClusterInstances(visibleClusters[i].ClusterIndex, GrassRing.Mid, cameraPosition, settings, triangleBudget, midMeshTriangles);
                 }
             }
 
             LastVisibleClumps = LastVisibleNearInstances + LastVisibleMidInstances;
-            LastVisibleNearTriangles = LastVisibleNearInstances * CountTriangles(nearGrassMesh);
-            LastVisibleMidTriangles = LastVisibleMidInstances * CountTriangles(midGrassMesh);
+            LastVisibleNearTriangles = LastVisibleNearInstances * nearMeshTriangles;
+            LastVisibleMidTriangles = LastVisibleMidInstances * midMeshTriangles;
             LastVisibleGrassTriangles = LastVisibleNearTriangles + LastVisibleMidTriangles;
             LastBatchCount = EstimateBatchCount(visibleNearMatrices.Count) + EstimateBatchCount(visibleMidMatrices.Count);
             LastMaterialBucketCount = LastVisibleClumps > 0 ? 1 : 0;
@@ -738,7 +764,8 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
             GrassRing ring,
             Vector3 cameraPosition,
             GpuGrassSettings settings,
-            int triangleBudget)
+            int triangleBudget,
+            int meshTriangles)
         {
             if (!TryGetGeneratedClusterInstances(clusterIndex, out var cluster))
             {
@@ -750,7 +777,6 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                 return;
             }
 
-            var meshTriangles = ring == GrassRing.Near ? CountTriangles(nearGrassMesh) : CountTriangles(midGrassMesh);
             if (meshTriangles <= 0)
             {
                 return;
@@ -778,11 +804,15 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
                     continue;
                 }
 
-                var distance = Mathf.Sqrt(SqrDistanceXZ(instance.Position, cameraPosition));
-                var fade = ResolveDistanceFade(distance, ring, settings);
-                if (fade <= 0.01f)
+                var fade = 1f;
+                if (ring == GrassRing.Mid)
                 {
-                    continue;
+                    var distance = Mathf.Sqrt(SqrDistanceXZ(instance.Position, cameraPosition));
+                    fade = ResolveDistanceFade(distance, ring, settings);
+                    if (fade <= 0.01f)
+                    {
+                        continue;
+                    }
                 }
 
                 var scale = instance.Scale;
@@ -1348,6 +1378,12 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
             var index = 0;
             while (index < total)
             {
+                if (!TryReserveClusterInstanceBuildSlice())
+                {
+                    yield return null;
+                    continue;
+                }
+
                 using (DebugSessionManager.Profiler.Scope("GpuGrassRenderer.GenerateClusterInstancesSlice", new
                 {
                     cluster.GridX,
@@ -1395,6 +1431,29 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
 
             GeneratedClumpCount = packedInstances.Count;
             DebugSessionManager.Current?.Counters.Set("grass.generatedClumps", GeneratedClumpCount);
+        }
+
+        private static bool TryReserveClusterInstanceBuildSlice()
+        {
+            if (!Application.isPlaying)
+            {
+                return true;
+            }
+
+            var frame = Time.frameCount;
+            if (clusterInstanceBuildSliceFrame != frame)
+            {
+                clusterInstanceBuildSliceFrame = frame;
+                clusterInstanceBuildSliceCount = 0;
+            }
+
+            if (clusterInstanceBuildSliceCount >= MaxClusterInstanceBuildSlicesPerFrame)
+            {
+                return false;
+            }
+
+            clusterInstanceBuildSliceCount++;
+            return true;
         }
 
         private bool TryCreateClusterGenerationContext(
@@ -1945,14 +2004,7 @@ namespace LegendsOfWarAndMagic.ProceduralGeneration.Steps
 
         private static Vector4 ResolveTint(byte tint)
         {
-            var t = tint / 255f;
-            var dry = new Color(0.66f, 0.60f, 0.34f, 1f);
-            var lush = new Color(0.56f, 0.64f, 0.31f, 1f);
-            var shade = new Color(0.40f, 0.52f, 0.21f, 1f);
-            var color = t < 0.5f
-                ? Color.Lerp(dry, shade, t * 2f)
-                : Color.Lerp(shade, lush, (t - 0.5f) * 2f);
-            return new Vector4(color.r, color.g, color.b, 0.18f);
+            return GrassTintLookup[tint];
         }
 
         private static Texture ResolveSourceTexture(Material sourceMaterial)
